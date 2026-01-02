@@ -1,0 +1,23 @@
+<Solution>
+  <Project Path="XenoAtom.Terminal.Tests/XenoAtom.Terminal.Tests.csproj" />
+  <Project Path="XenoAtom.Terminal/XenoAtom.Terminal.csproj" />
+  <Folder Name="/doc/">
+    <File Path="../doc/readme.md" />
+  </Folder>
+  <Folder Name="/general/">
+    <File Path="../.editorconfig" />
+    <File Path="../.gitattributes" />
+    <File Path="../.github/workflows/ci.yml" />
+    <File Path="../.gitignore" />
+    <File Path="../license.txt" />
+    <File Path="../readme.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="dotnet-releaser.toml" />
+    <File Path="global.json" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="../samples/HelloTerminal/HelloTerminal.csproj" />
+    <Project Path="../samples/LogTerminal/LogTerminal.csproj" />
+  </Folder>
+</Solution>
