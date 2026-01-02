@@ -20,7 +20,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 
 - Modern `System.Console` replacement (same “feel”, more capabilities)
 - Unified input events for TUIs: keys, text, mouse, resize, signals
-- Rich output: ANSI styling + markup rendering (powered by XenoAtom.Ansi)
+- Rich output: ANSI styling + markup rendering (powered by [XenoAtom.Ansi](https://github.com/XenoAtom/XenoAtom.Ansi))
 - Thread-safe output: serialized writers to avoid interleaved escape sequences
 - Atomic writes: build multi-step output without tearing between threads
 - Portable terminal state: style/colors/decorations, title, cursor, window size (best effort)
