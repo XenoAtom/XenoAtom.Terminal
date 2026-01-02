@@ -3,13 +3,12 @@
 XenoAtom.Terminal is a modern replacement for `System.Console` designed for TUI/CLI apps.
 It keeps the familiar Console surface (title/colors/cursor/window/ReadKey), while adding terminal-native features that `System.Console` does not provide: atomic output, markup rendering, unified input events, and deterministic tests.
 
-It supports Windows, Linux, and macOS backends.
-
 ## Why Terminal?
 
 `System.Console` is great for basic apps, but TUIs and concurrent CLIs quickly run into limitations:
 
 - Output from multiple threads can interleave and corrupt ANSI sequences.
+- No events for mouse or resize; input is key/text only.
 - Input is split across `ReadKey`, `ReadLine`, `CancelKeyPress`, and ad-hoc polling patterns.
 - “Do something, then restore state” patterns are easy to get wrong.
 - Tests are hard because `System.Console` is global and environment-dependent.
