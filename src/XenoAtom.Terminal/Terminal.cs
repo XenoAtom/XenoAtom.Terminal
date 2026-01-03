@@ -2,6 +2,7 @@
 // Licensed under the BSD-Clause 2 license.
 // See license.txt file in the project root for full license information.
 
+using System;
 using System.IO;
 using System.Threading;
 using XenoAtom.Ansi;
@@ -16,6 +17,7 @@ public static partial class Terminal
 {
     private static readonly Lock InitLock = new();
     private static TerminalInstance? _instance;
+    private static int _processExitHooked;
 
     /// <summary>
     /// Gets the global terminal instance (initialized lazily).
@@ -218,8 +220,29 @@ public static partial class Terminal
             var instance = new TerminalInstance();
             instance.Initialize(backend, options);
             Volatile.Write(ref _instance, instance);
+            HookProcessExit();
             return instance;
         }
+    }
+
+    private static void HookProcessExit()
+    {
+        if (Interlocked.Exchange(ref _processExitHooked, 1) != 0)
+        {
+            return;
+        }
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            try
+            {
+                Volatile.Read(ref _instance)?.Dispose();
+            }
+            catch
+            {
+                // Best-effort.
+            }
+        };
     }
 
     /// <summary>
