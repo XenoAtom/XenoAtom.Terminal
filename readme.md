@@ -28,6 +28,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - Async + cancellation-friendly APIs for TUI loops
 - **Interactive ReadLine editor**:
   - Cursor movement, mid-line insert/delete, word navigation/delete
+  - Undo/redo + reverse incremental history search
   - Selection by keyboard (Shift) and **mouse click/drag**
   - History stored on the `TerminalReadLineOptions` instance (shareable, not global)
   - Completion + extensibility via **custom key/mouse handlers** (`TerminalReadLineController`)

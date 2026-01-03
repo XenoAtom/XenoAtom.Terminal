@@ -422,6 +422,26 @@ For constrained UI regions, use:
 - `ShowEllipsis` / `Ellipsis` to indicate truncation
 - `MaxLength` to cap input length
 
+### Undo/redo, reverse search, key bindings
+
+The interactive editor includes a few “readline-style” behaviors by default:
+
+- Undo/redo: Ctrl+Z / Ctrl+Y
+- Reverse incremental history search: Ctrl+R
+
+You can customize bindings via `TerminalReadLineOptions.KeyBindings`:
+
+```csharp
+var bindings = TerminalReadLineKeyBindings.CreateDefault();
+bindings.Bind(TerminalKey.Left, TerminalModifiers.None, TerminalReadLineCommand.Ignore); // disable Left
+
+var options = new TerminalReadLineOptions
+{
+    Echo = true,
+    KeyBindings = bindings,
+};
+```
+
 ### Text utilities (cell width, word boundaries)
 
 For higher-level controls (layout, clipping, hit testing), use `TerminalTextUtility`:

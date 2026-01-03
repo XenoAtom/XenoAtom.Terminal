@@ -378,6 +378,30 @@ public sealed class TerminalReadLineController
 
     internal void Deactivate() => _isActive = false;
 
+    internal void RestoreSelectionState(int cursorIndex, int selectionStart, int selectionLength)
+    {
+        ThrowIfNotActive();
+
+        cursorIndex = Math.Clamp(cursorIndex, 0, _buffer.Count);
+        selectionStart = Math.Clamp(selectionStart, 0, _buffer.Count);
+        selectionLength = Math.Clamp(selectionLength, 0, _buffer.Count - selectionStart);
+
+        CursorIndex = cursorIndex;
+        SelectionStart = selectionStart;
+        SelectionLength = selectionLength;
+
+        if (selectionLength <= 0)
+        {
+            _selectionAnchor = -1;
+        }
+        else
+        {
+            _selectionAnchor = cursorIndex == selectionStart ? selectionStart + selectionLength : selectionStart;
+        }
+
+        StateChanged = true;
+    }
+
     private void UpdateSelectionFromAnchor()
     {
         var a = _selectionAnchor;

@@ -9,6 +9,8 @@ namespace XenoAtom.Terminal;
 
 public sealed partial class TerminalInstance
 {
+    private readonly record struct ReadLineEditSnapshot(string Text, int CursorIndex, int SelectionStart, int SelectionLength);
+
     private async ValueTask<string?> ReadLineSimpleAsync(TerminalReadLineOptions options, CancellationToken cancellationToken)
     {
         var promptPlain = options.Prompt ?? string.Empty;
@@ -239,6 +241,8 @@ public sealed partial class TerminalInstance
         var controller = new TerminalReadLineController(buffer, options.MaxLength);
         controller.Activate();
 
+        var keyBindings = options.KeyBindings;
+
         var historyIndex = -1;
         string? historySnapshot = null;
         var mouseSelecting = false;
@@ -248,6 +252,17 @@ public sealed partial class TerminalInstance
         int completionCandidateIndex = -1;
         int completionReplaceStart = -1;
         int completionReplaceLength = 0;
+
+        List<ReadLineEditSnapshot>? undoStack = options.EnableUndoRedo ? new List<ReadLineEditSnapshot>() : null;
+        List<ReadLineEditSnapshot>? redoStack = options.EnableUndoRedo ? new List<ReadLineEditSnapshot>() : null;
+
+        var reverseSearchActive = false;
+        var reverseSearchQuery = string.Empty;
+        var reverseSearchCursor = 0;
+        var reverseSearchMatchIndex = -1;
+        var reverseSearchMatch = string.Empty;
+        ReadLineEditSnapshot reverseSearchSnapshot = default;
+        var hasReverseSearchSnapshot = false;
 
         var origin = GetCursorPosition();
         var windowColumns = Math.Max(1, GetWindowSize().Columns);
@@ -276,6 +291,7 @@ public sealed partial class TerminalInstance
                     return null;
                 }
 
+                controller.BeginCallback();
                 switch (ev)
                 {
                 case TerminalResizeEvent resize:
@@ -294,6 +310,16 @@ public sealed partial class TerminalInstance
                     ResetCompletionSession();
                     if (!string.IsNullOrEmpty(paste.Text))
                     {
+                        if (reverseSearchActive)
+                        {
+                            if (TryAppendReverseSearchText(paste.Text.AsSpan(), out _))
+                            {
+                                RenderIfEcho();
+                            }
+                            break;
+                        }
+
+                        var before = CaptureUndoIfEnabledForTextInput();
                         if (InsertText(paste.Text.AsSpan(), out var accepted))
                         {
                             if (options.Echo)
@@ -310,6 +336,7 @@ public sealed partial class TerminalInstance
                             return accepted;
                         }
 
+                        PushUndoIfChanged(before);
                         RenderIfEcho();
                     }
                     break;
@@ -318,6 +345,16 @@ public sealed partial class TerminalInstance
                     ResetCompletionSession();
                     if (!string.IsNullOrEmpty(text.Text))
                     {
+                        if (reverseSearchActive)
+                        {
+                            if (TryAppendReverseSearchText(text.Text.AsSpan(), out _))
+                            {
+                                RenderIfEcho();
+                            }
+                            break;
+                        }
+
+                        var before = CaptureUndoIfEnabledForTextInput();
                         if (InsertText(text.Text.AsSpan(), out var accepted))
                         {
                             if (options.Echo)
@@ -334,6 +371,7 @@ public sealed partial class TerminalInstance
                             return accepted;
                         }
 
+                        PushUndoIfChanged(before);
                         RenderIfEcho();
                     }
                     break;
@@ -398,11 +436,24 @@ public sealed partial class TerminalInstance
                         return null;
                     }
 
-                    if (key.Key != TerminalKey.Tab)
+                    var hasCommand = TryResolveKeyBindingCommand(key, out var command);
+                    var isCompletionGesture = (hasCommand && command == TerminalReadLineCommand.Complete) || (!hasCommand && key.Key == TerminalKey.Tab);
+
+                    if (!isCompletionGesture)
                     {
                         ResetCompletionSession();
                     }
 
+                    if (reverseSearchActive)
+                    {
+                        if (HandleReverseSearchKey(key, hasCommand, command))
+                        {
+                            RenderIfEcho();
+                        }
+                        break;
+                    }
+
+                    var beforeKey = CaptureUndoIfEnabledForKeyEvent(hasCommand, command, key);
                     if (options.KeyHandler is { } handler)
                     {
                         controller.BeginCallback();
@@ -438,9 +489,66 @@ public sealed partial class TerminalInstance
                         if (controller.Handled)
                         {
                             ResetCompletionSession();
+                            PushUndoIfChanged(beforeKey);
                             RenderIfEcho();
                             break;
                         }
+                    }
+
+                    if (hasCommand)
+                    {
+                        if (command == TerminalReadLineCommand.AcceptLine)
+                        {
+                            if (options.Echo)
+                            {
+                                controller.SetCursorIndex(buffer.Count, extendSelection: false);
+                                Render();
+                                if (options.EmitNewLineOnAccept)
+                                {
+                                    WriteLine();
+                                }
+                            }
+
+                            AddToHistoryIfEnabled(options, buffer);
+                            return new string(CollectionsMarshal.AsSpan(buffer));
+                        }
+
+                        if (command == TerminalReadLineCommand.Cancel)
+                        {
+                            throw new OperationCanceledException("ReadLine canceled by key gesture.");
+                        }
+
+                        if (command == TerminalReadLineCommand.Ignore)
+                        {
+                            PushUndoIfChanged(beforeKey);
+                            break;
+                        }
+
+                        if (HandleEditorCommand(key, command))
+                        {
+                            if (controller.AcceptRequested)
+                            {
+                                if (options.Echo)
+                                {
+                                    controller.SetCursorIndex(buffer.Count, extendSelection: false);
+                                    Render();
+                                    if (options.EmitNewLineOnAccept)
+                                    {
+                                        WriteLine();
+                                    }
+                                }
+
+                                AddToHistoryIfEnabled(options, buffer);
+                                return new string(CollectionsMarshal.AsSpan(buffer));
+                            }
+
+                            PushUndoIfChanged(beforeKey);
+                            RenderIfEcho();
+                            break;
+                        }
+
+                        PushUndoIfChanged(beforeKey);
+                        break;
                     }
 
                     if (key.Key == TerminalKey.Enter)
@@ -461,9 +569,28 @@ public sealed partial class TerminalInstance
 
                     if (HandleEditorKey(key))
                     {
+                        if (controller.AcceptRequested)
+                        {
+                            if (options.Echo)
+                            {
+                                controller.SetCursorIndex(buffer.Count, extendSelection: false);
+                                Render();
+                                if (options.EmitNewLineOnAccept)
+                                {
+                                    WriteLine();
+                                }
+                            }
+
+                            AddToHistoryIfEnabled(options, buffer);
+                            return new string(CollectionsMarshal.AsSpan(buffer));
+                        }
+
+                        PushUndoIfChanged(beforeKey);
                         RenderIfEcho();
+                        break;
                     }
 
+                    PushUndoIfChanged(beforeKey);
                     break;
             }
             }
@@ -502,6 +629,296 @@ public sealed partial class TerminalInstance
             completionCandidateIndex = -1;
             completionReplaceStart = -1;
             completionReplaceLength = 0;
+        }
+
+        bool TryResolveKeyBindingCommand(TerminalKeyEvent key, out TerminalReadLineCommand command)
+        {
+            if (keyBindings is null)
+            {
+                command = TerminalReadLineCommand.None;
+                return false;
+            }
+
+            return keyBindings.TryGetCommandWithShiftFallback(TerminalKeyGesture.From(key), out command)
+                   && command != TerminalReadLineCommand.None;
+        }
+
+        ReadLineEditSnapshot? CaptureUndoIfEnabledForTextInput()
+        {
+            if (undoStack is null || options.UndoCapacity <= 0)
+            {
+                return null;
+            }
+
+            return CaptureSnapshot();
+        }
+
+        ReadLineEditSnapshot? CaptureUndoIfEnabledForKeyEvent(bool hasCommand, TerminalReadLineCommand command, TerminalKeyEvent key)
+        {
+            if (undoStack is null || options.UndoCapacity <= 0)
+            {
+                return null;
+            }
+
+            if (options.KeyHandler is not null)
+            {
+                return CaptureSnapshot();
+            }
+
+            if (hasCommand)
+            {
+                return command switch
+                {
+                    TerminalReadLineCommand.DeleteBackward or
+                    TerminalReadLineCommand.DeleteForward or
+                    TerminalReadLineCommand.DeleteWordBackward or
+                    TerminalReadLineCommand.DeleteWordForward or
+                    TerminalReadLineCommand.CutSelectionOrAll or
+                    TerminalReadLineCommand.Paste or
+                    TerminalReadLineCommand.KillToEnd or
+                    TerminalReadLineCommand.KillToStart or
+                    TerminalReadLineCommand.KillWordLeft or
+                    TerminalReadLineCommand.KillWordRight or
+                    TerminalReadLineCommand.Complete => CaptureSnapshot(),
+                    _ => null,
+                };
+            }
+
+            if (key.Key is TerminalKey.Backspace or TerminalKey.Delete or TerminalKey.Tab)
+            {
+                return CaptureSnapshot();
+            }
+
+            if (key.Modifiers.HasFlag(TerminalModifiers.Ctrl) && key.Char is >= '\x01' and <= '\x1A')
+            {
+                return CaptureSnapshot();
+            }
+
+            if (key.Modifiers.HasFlag(TerminalModifiers.Alt) && key.Char is not null)
+            {
+                return CaptureSnapshot();
+            }
+
+            return null;
+        }
+
+        void PushUndoIfChanged(ReadLineEditSnapshot? before)
+        {
+            if (undoStack is null || before is null)
+            {
+                return;
+            }
+
+            if (!controller.TextChanged)
+            {
+                return;
+            }
+
+            if (undoStack.Count == options.UndoCapacity)
+            {
+                undoStack.RemoveAt(0);
+            }
+
+            undoStack.Add(before.Value);
+            redoStack?.Clear();
+        }
+
+        ReadLineEditSnapshot CaptureSnapshot()
+            => new ReadLineEditSnapshot(new string(CollectionsMarshal.AsSpan(buffer)), controller.CursorIndex, controller.SelectionStart, controller.SelectionLength);
+
+        void ApplySnapshot(ReadLineEditSnapshot snapshot)
+        {
+            SetBuffer(snapshot.Text);
+            controller.RestoreSelectionState(snapshot.CursorIndex, snapshot.SelectionStart, snapshot.SelectionLength);
+        }
+
+        bool Undo()
+        {
+            if (undoStack is null || undoStack.Count == 0)
+            {
+                return false;
+            }
+
+            redoStack?.Add(CaptureSnapshot());
+            var snap = undoStack[^1];
+            undoStack.RemoveAt(undoStack.Count - 1);
+            ApplySnapshot(snap);
+            return true;
+        }
+
+        bool Redo()
+        {
+            if (undoStack is null || redoStack is null || redoStack.Count == 0)
+            {
+                return false;
+            }
+
+            if (undoStack.Count == options.UndoCapacity)
+            {
+                undoStack.RemoveAt(0);
+            }
+
+            undoStack.Add(CaptureSnapshot());
+            var snap = redoStack[^1];
+            redoStack.RemoveAt(redoStack.Count - 1);
+            ApplySnapshot(snap);
+            return true;
+        }
+
+        bool StartReverseSearch()
+        {
+            if (!options.EnableReverseSearch || !options.EnableHistory || options.History.Count == 0)
+            {
+                return false;
+            }
+
+            reverseSearchActive = true;
+            reverseSearchQuery = string.Empty;
+            reverseSearchCursor = 0;
+            reverseSearchMatchIndex = -1;
+            reverseSearchMatch = string.Empty;
+            reverseSearchSnapshot = CaptureSnapshot();
+            hasReverseSearchSnapshot = true;
+            FindReverseSearchMatch(startIndexInclusive: options.History.Count - 1);
+            return true;
+        }
+
+        void AcceptReverseSearchMatch()
+        {
+            reverseSearchActive = false;
+
+            if (string.IsNullOrEmpty(reverseSearchMatch))
+            {
+                return;
+            }
+
+            if (undoStack is not null && hasReverseSearchSnapshot && !string.Equals(reverseSearchSnapshot.Text, reverseSearchMatch, StringComparison.Ordinal))
+            {
+                if (undoStack.Count == options.UndoCapacity)
+                {
+                    undoStack.RemoveAt(0);
+                }
+
+                undoStack.Add(reverseSearchSnapshot);
+                redoStack?.Clear();
+            }
+
+            SetBuffer(reverseSearchMatch);
+            controller.RestoreSelectionState(buffer.Count, 0, 0);
+            ResetHistoryNavigation();
+        }
+
+        bool HandleReverseSearchKey(TerminalKeyEvent key, bool hasCommand, TerminalReadLineCommand command)
+        {
+            if (!reverseSearchActive)
+            {
+                return false;
+            }
+
+            if (hasCommand && command == TerminalReadLineCommand.ReverseSearch)
+            {
+                var start = reverseSearchMatchIndex >= 0 ? reverseSearchMatchIndex - 1 : options.History.Count - 1;
+                FindReverseSearchMatch(start);
+                return true;
+            }
+
+            if (key.Key == TerminalKey.Escape || (hasCommand && command == TerminalReadLineCommand.Cancel))
+            {
+                reverseSearchActive = false;
+                if (hasReverseSearchSnapshot)
+                {
+                    ApplySnapshot(reverseSearchSnapshot);
+                }
+                return true;
+            }
+
+            if (key.Key == TerminalKey.Enter || (hasCommand && command == TerminalReadLineCommand.AcceptLine))
+            {
+                AcceptReverseSearchMatch();
+                return true;
+            }
+
+            if (key.Key == TerminalKey.Backspace || (key.Char is '\b' && key.Key == TerminalKey.Unknown))
+            {
+                if (reverseSearchCursor > 0 && reverseSearchQuery.Length > 0)
+                {
+                    var prev = TerminalTextUtility.GetPreviousRuneIndex(reverseSearchQuery.AsSpan(), reverseSearchCursor);
+                    reverseSearchQuery = reverseSearchQuery.Remove(prev, reverseSearchCursor - prev);
+                    reverseSearchCursor = prev;
+                    FindReverseSearchMatch(options.History.Count - 1);
+                }
+                return true;
+            }
+
+            return false;
+        }
+
+        bool TryAppendReverseSearchText(ReadOnlySpan<char> text, out bool accept)
+        {
+            accept = false;
+            if (!reverseSearchActive)
+            {
+                return false;
+            }
+
+            var newline = text.IndexOfAny('\r', '\n');
+            if (newline >= 0)
+            {
+                text = text[..newline];
+                accept = true;
+            }
+
+            if (!text.IsEmpty)
+            {
+                reverseSearchQuery += text.ToString();
+                reverseSearchCursor = reverseSearchQuery.Length;
+            }
+
+            FindReverseSearchMatch(options.History.Count - 1);
+            if (accept)
+            {
+                AcceptReverseSearchMatch();
+            }
+
+            return true;
+        }
+
+        void FindReverseSearchMatch(int startIndexInclusive)
+        {
+            reverseSearchMatchIndex = -1;
+            reverseSearchMatch = string.Empty;
+
+            if (options.History.Count == 0)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(reverseSearchQuery))
+            {
+                var last = options.History.GetAt(options.History.Count - 1);
+                if (!string.IsNullOrEmpty(last))
+                {
+                    reverseSearchMatchIndex = options.History.Count - 1;
+                    reverseSearchMatch = last;
+                }
+                return;
+            }
+
+            for (var i = Math.Min(startIndexInclusive, options.History.Count - 1); i >= 0; i--)
+            {
+                var entry = options.History.GetAt(i);
+                if (string.IsNullOrEmpty(entry))
+                {
+                    continue;
+                }
+
+                if (entry.IndexOf(reverseSearchQuery, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    reverseSearchMatchIndex = i;
+                    reverseSearchMatch = entry;
+                    return;
+                }
+            }
         }
 
         void ComputeView(ReadOnlySpan<char> lineSpan, out int contentStartCell, out int contentCells, out int viewStartIndex, out int viewEndIndex, out bool left, out bool right, out int ellipsisCells)
@@ -926,6 +1343,255 @@ public sealed partial class TerminalInstance
             }
         }
 
+        bool HandleEditorCommand(TerminalKeyEvent key, TerminalReadLineCommand command)
+        {
+            switch (command)
+            {
+                case TerminalReadLineCommand.Complete:
+                    return HandleEditorKey(new TerminalKeyEvent { Key = TerminalKey.Tab, Char = '\t', Modifiers = key.Modifiers });
+
+                case TerminalReadLineCommand.CursorLeft:
+                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    return true;
+                case TerminalReadLineCommand.CursorRight:
+                    controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    return true;
+                case TerminalReadLineCommand.CursorHome:
+                    controller.SetCursorIndex(0, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    return true;
+                case TerminalReadLineCommand.CursorEnd:
+                    controller.SetCursorIndex(buffer.Count, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    return true;
+                case TerminalReadLineCommand.CursorWordLeft:
+                    controller.SetCursorIndex(MoveWordLeft(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    return true;
+                case TerminalReadLineCommand.CursorWordRight:
+                    controller.SetCursorIndex(MoveWordRight(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    return true;
+
+                case TerminalReadLineCommand.ClearSelection:
+                    controller.ClearSelection();
+                    return true;
+
+                case TerminalReadLineCommand.HistoryPrevious:
+                    controller.ClearSelection();
+                    return options.EnableHistory && NavigateHistory(-1);
+                case TerminalReadLineCommand.HistoryNext:
+                    controller.ClearSelection();
+                    return options.EnableHistory && NavigateHistory(+1);
+
+                case TerminalReadLineCommand.DeleteBackward:
+                    if (controller.HasSelection)
+                    {
+                        controller.DeleteSelection();
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    if (controller.CursorIndex > 0)
+                    {
+                        var span = CollectionsMarshal.AsSpan(buffer);
+                        var end = controller.CursorIndex;
+                        var prev = TerminalTextUtility.GetPreviousRuneIndex(span, end);
+                        controller.Remove(prev, end - prev);
+                        controller.SetCursorIndex(prev, extendSelection: false);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.DeleteForward:
+                    if (controller.HasSelection)
+                    {
+                        controller.DeleteSelection();
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    if (controller.CursorIndex < buffer.Count)
+                    {
+                        var span = CollectionsMarshal.AsSpan(buffer);
+                        var start = controller.CursorIndex;
+                        var next = TerminalTextUtility.GetNextRuneIndex(span, start);
+                        controller.Remove(start, next - start);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.DeleteWordBackward:
+                    if (controller.HasSelection)
+                    {
+                        controller.DeleteSelection();
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    if (controller.CursorIndex > 0)
+                    {
+                        var span = CollectionsMarshal.AsSpan(buffer);
+                        var end = controller.CursorIndex;
+                        var start = MoveWordLeft(span, end);
+                        if (start != end)
+                        {
+                            controller.Remove(start, end - start);
+                            controller.SetCursorIndex(start, extendSelection: false);
+                            ResetHistoryNavigation();
+                            return true;
+                        }
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.DeleteWordForward:
+                    if (controller.HasSelection)
+                    {
+                        controller.DeleteSelection();
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    if (controller.CursorIndex < buffer.Count)
+                    {
+                        var span = CollectionsMarshal.AsSpan(buffer);
+                        var start = controller.CursorIndex;
+                        var end = MoveWordRight(span, start);
+                        if (end != start)
+                        {
+                            controller.Remove(start, end - start);
+                            ResetHistoryNavigation();
+                            return true;
+                        }
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.CopySelection:
+                    if (controller.HasSelection)
+                    {
+                        var selection = CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength);
+                        _readLineKillBuffer = selection.Length == 0 ? string.Empty : new string(selection);
+                        Clipboard.TrySetText(selection);
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.CopySelectionOrCancel:
+                    if (controller.HasSelection)
+                    {
+                        var selection = CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength);
+                        _readLineKillBuffer = selection.Length == 0 ? string.Empty : new string(selection);
+                        Clipboard.TrySetText(selection);
+                        return true;
+                    }
+                    throw new OperationCanceledException("ReadLine canceled by Ctrl+C.");
+
+                case TerminalReadLineCommand.CutSelectionOrAll:
+                    if (buffer.Count > 0)
+                    {
+                        ReadOnlySpan<char> cutSpan;
+                        if (controller.HasSelection)
+                        {
+                            cutSpan = CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength);
+                            controller.DeleteSelection();
+                        }
+                        else
+                        {
+                            cutSpan = CollectionsMarshal.AsSpan(buffer);
+                            controller.Clear();
+                        }
+                        _readLineKillBuffer = cutSpan.Length == 0 ? string.Empty : new string(cutSpan);
+                        Clipboard.TrySetText(cutSpan);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.Paste:
+                    if (Clipboard.TryGetText(out var clipboardText) && !string.IsNullOrEmpty(clipboardText))
+                    {
+                        if (InsertText(clipboardText.AsSpan(), out _))
+                        {
+                            controller.Accept();
+                        }
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+
+                    if (!string.IsNullOrEmpty(_readLineKillBuffer))
+                    {
+                        if (InsertText(_readLineKillBuffer.AsSpan(), out _))
+                        {
+                            controller.Accept();
+                        }
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+
+                    return false;
+
+                case TerminalReadLineCommand.KillToEnd:
+                    controller.ClearSelection();
+                    if (controller.CursorIndex < buffer.Count)
+                    {
+                        var start = controller.CursorIndex;
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer)[start..]);
+                        controller.Remove(start, buffer.Count - start);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.KillToStart:
+                    controller.ClearSelection();
+                    if (controller.CursorIndex > 0)
+                    {
+                        var end = controller.CursorIndex;
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer)[..end]);
+                        controller.Remove(0, end);
+                        controller.SetCursorIndex(0, extendSelection: false);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.KillWordLeft:
+                    controller.ClearSelection();
+                    if (controller.CursorIndex > 0)
+                    {
+                        var end = controller.CursorIndex;
+                        var start = MoveWordLeft(CollectionsMarshal.AsSpan(buffer), end);
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
+                        controller.Remove(start, end - start);
+                        controller.SetCursorIndex(start, extendSelection: false);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.KillWordRight:
+                    controller.ClearSelection();
+                    if (controller.CursorIndex < buffer.Count)
+                    {
+                        var start = controller.CursorIndex;
+                        var end = MoveWordRight(CollectionsMarshal.AsSpan(buffer), start);
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
+                        controller.Remove(start, end - start);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+                    return false;
+
+                case TerminalReadLineCommand.Undo:
+                    return Undo();
+                case TerminalReadLineCommand.Redo:
+                    return Redo();
+
+                case TerminalReadLineCommand.ReverseSearch:
+                    return StartReverseSearch();
+
+                case TerminalReadLineCommand.ClearScreen:
+                    Clear(TerminalClearKind.Screen);
+                    return true;
+            }
+
+            return false;
+        }
+
         bool HandleCtrlKey(char ch)
         {
             switch (ch)
@@ -1179,6 +1845,44 @@ public sealed partial class TerminalInstance
                     _backend.SetCursorPosition(origin);
 
                     _writerUnsafe!.Reset();
+
+                    if (reverseSearchActive)
+                    {
+                        const string prefix = "(reverse-i-search) '";
+                        const string separator = "': ";
+
+                        _writerUnsafe.Foreground(ConsoleColor.DarkGray);
+                        _writerUnsafe.Write(prefix);
+                        _writerUnsafe.ResetStyle();
+
+                        if (!string.IsNullOrEmpty(reverseSearchQuery))
+                        {
+                            _writerUnsafe.Write(reverseSearchQuery);
+                        }
+
+                        _writerUnsafe.Foreground(ConsoleColor.DarkGray);
+                        _writerUnsafe.Write(separator);
+                        _writerUnsafe.ResetStyle();
+
+                        if (!string.IsNullOrEmpty(reverseSearchMatch))
+                        {
+                            _writerUnsafe.Write(reverseSearchMatch);
+                        }
+                        else
+                        {
+                            _writerUnsafe.Foreground(ConsoleColor.DarkGray);
+                            _writerUnsafe.Write("no match");
+                            _writerUnsafe.ResetStyle();
+                        }
+
+                        _writerUnsafe.EraseLine(0);
+
+                        var searchCursorColumn = origin.Column
+                                                 + TerminalTextUtility.GetWidth(prefix.AsSpan())
+                                                 + TerminalTextUtility.GetWidth(reverseSearchQuery.AsSpan());
+                        _backend.SetCursorPosition(new TerminalPosition(searchCursorColumn, origin.Row));
+                        return;
+                    }
 
                     if (!string.IsNullOrEmpty(promptMarkup))
                     {

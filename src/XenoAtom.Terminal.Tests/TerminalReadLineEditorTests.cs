@@ -2,6 +2,7 @@
 // Licensed under the BSD-Clause 2 license.
 // See license.txt file in the project root for full license information.
 
+using System.Collections.Generic;
 using XenoAtom.Terminal.Backends;
 
 namespace XenoAtom.Terminal.Tests;
@@ -31,6 +32,84 @@ public sealed class TerminalReadLineEditorTests
 
         var line = await task;
         Assert.AreEqual("abc", line);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_KeyBindings_CanDisableLeftArrow()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var bindings = TerminalReadLineKeyBindings.CreateDefault();
+        bindings.Bind(TerminalKey.Left, TerminalModifiers.None, TerminalReadLineCommand.Ignore);
+
+        var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true, KeyBindings = bindings }).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "ac" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left });
+        backend.PushEvent(new TerminalTextEvent { Text = "b" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        var line = await task;
+        Assert.AreEqual("acb", line);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_UndoRedo_RestoresPriorStates()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var snapshots = new List<string>();
+        var options = new TerminalReadLineOptions
+        {
+            Echo = false,
+            EnableEditing = true,
+            KeyHandler = (ctl, key) =>
+            {
+                if (key.Key == TerminalKey.F1)
+                {
+                    snapshots.Add(ctl.TextString);
+                    ctl.Handled = true;
+                }
+            },
+        };
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "abc" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Backspace });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x1A', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+Z
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.F1 });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x19', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+Y
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.F1 });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("ab", await task);
+        CollectionAssert.AreEqual(new[] { "abc", "ab" }, snapshots);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_ReverseSearch_CtrlR_FindsHistory()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var options = new TerminalReadLineOptions { Echo = false, EnableEditing = true, EnableHistory = true };
+        options.History.Add("first", options.HistoryCapacity);
+        options.History.Add("second", options.HistoryCapacity);
+        options.History.Add("foo", options.HistoryCapacity);
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x12', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+R
+        backend.PushEvent(new TerminalTextEvent { Text = "se" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter }); // accept match
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter }); // accept line
+
+        Assert.AreEqual("second", await task);
     }
 
     [TestMethod]

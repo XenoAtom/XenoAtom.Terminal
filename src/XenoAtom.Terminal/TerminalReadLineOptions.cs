@@ -100,6 +100,31 @@ public sealed class TerminalReadLineOptions
     public bool EnableMouseEditing { get; set; }
 
     /// <summary>
+    /// Gets or sets the key bindings used by the interactive line editor.
+    /// </summary>
+    /// <remarks>
+    /// This object is mutable. If you plan to share the same <see cref="TerminalReadLineOptions"/> instance across components,
+    /// create your own bindings instance (e.g. <see cref="TerminalReadLineKeyBindings.CreateDefault"/>) instead of mutating
+    /// a shared instance.
+    /// </remarks>
+    public TerminalReadLineKeyBindings KeyBindings { get; init; } = TerminalReadLineKeyBindings.CreateDefault();
+
+    /// <summary>
+    /// Enables undo/redo for the interactive editor.
+    /// </summary>
+    public bool EnableUndoRedo { get; set; } = true;
+
+    /// <summary>
+    /// Maximum number of undo states kept by the interactive editor.
+    /// </summary>
+    public int UndoCapacity { get; set; } = 100;
+
+    /// <summary>
+    /// Enables reverse incremental history search (Ctrl+R by default).
+    /// </summary>
+    public bool EnableReverseSearch { get; set; } = true;
+
+    /// <summary>
     /// Optional key handler invoked before default editor handling.
     /// </summary>
     public TerminalReadLineKeyHandler? KeyHandler { get; set; }
