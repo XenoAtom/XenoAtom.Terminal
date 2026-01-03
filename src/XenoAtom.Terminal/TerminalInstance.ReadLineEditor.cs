@@ -1007,103 +1007,120 @@ public sealed partial class TerminalInstance
         {
             lock (_outputLock)
             {
-                _backend!.SetCursorPosition(origin);
-
-                _writerUnsafe!.Reset();
-
-                if (!string.IsNullOrEmpty(promptMarkup))
+                var restoreCursorVisible = false;
+                if (_backend!.TryGetCursorVisible(out var cursorVisible) && cursorVisible)
                 {
-                    _markupUnsafe!.Write(promptMarkup.AsSpan());
-                    _writerUnsafe!.ResetStyle();
-                }
-                else if (!string.IsNullOrEmpty(promptPlain))
-                {
-                    _writerUnsafe.Write(promptPlain);
+                    _backend.SetCursorVisible(false);
+                    restoreCursorVisible = true;
                 }
 
-                var lineSpan = CollectionsMarshal.AsSpan(buffer);
-                var totalCells = TerminalCellWidth.GetWidth(lineSpan);
-                var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..controller.CursorIndex]);
-
-                var showEllipsis = options.ShowEllipsis && !string.IsNullOrEmpty(options.Ellipsis);
-                var ellipsisCells = showEllipsis ? TerminalCellWidth.GetWidth(options.Ellipsis.AsSpan()) : 0;
-
-                var contentStartCell = 0;
-                var contentCells = availableCells;
-
-                if (totalCells > availableCells && showEllipsis && ellipsisCells > 0)
+                try
                 {
-                    contentStartCell = Math.Max(0, cursorCells - (availableCells / 2));
+                    _backend.SetCursorPosition(origin);
 
-                    for (var i = 0; i < 2; i++)
+                    _writerUnsafe!.Reset();
+
+                    if (!string.IsNullOrEmpty(promptMarkup))
                     {
-                        var showLeft = contentStartCell > 0;
-                        var remaining = totalCells - contentStartCell;
-                        var showRight = remaining > (availableCells - (showLeft ? ellipsisCells : 0));
-                        contentCells = availableCells - (showLeft ? ellipsisCells : 0) - (showRight ? ellipsisCells : 0);
-                        if (contentCells < 1)
-                        {
-                            contentCells = 1;
-                        }
+                        _markupUnsafe!.Write(promptMarkup.AsSpan());
+                        _writerUnsafe!.ResetStyle();
+                    }
+                    else if (!string.IsNullOrEmpty(promptPlain))
+                    {
+                        _writerUnsafe.Write(promptPlain);
+                    }
 
-                        if (!showRight)
-                        {
-                            contentStartCell = Math.Max(0, totalCells - contentCells);
-                        }
+                    var lineSpan = CollectionsMarshal.AsSpan(buffer);
+                    var totalCells = TerminalCellWidth.GetWidth(lineSpan);
+                    var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..controller.CursorIndex]);
 
-                        if (cursorCells < contentStartCell)
+                    var showEllipsis = options.ShowEllipsis && !string.IsNullOrEmpty(options.Ellipsis);
+                    var ellipsisCells = showEllipsis ? TerminalCellWidth.GetWidth(options.Ellipsis.AsSpan()) : 0;
+
+                    var contentStartCell = 0;
+                    var contentCells = availableCells;
+
+                    if (totalCells > availableCells && showEllipsis && ellipsisCells > 0)
+                    {
+                        contentStartCell = Math.Max(0, cursorCells - (availableCells / 2));
+
+                        for (var i = 0; i < 2; i++)
                         {
-                            contentStartCell = cursorCells;
-                        }
-                        else if (cursorCells > contentStartCell + contentCells)
-                        {
-                            contentStartCell = cursorCells - contentCells;
+                            var showLeft = contentStartCell > 0;
+                            var remaining = totalCells - contentStartCell;
+                            var showRight = remaining > (availableCells - (showLeft ? ellipsisCells : 0));
+                            contentCells = availableCells - (showLeft ? ellipsisCells : 0) - (showRight ? ellipsisCells : 0);
+                            if (contentCells < 1)
+                            {
+                                contentCells = 1;
+                            }
+
+                            if (!showRight)
+                            {
+                                contentStartCell = Math.Max(0, totalCells - contentCells);
+                            }
+
+                            if (cursorCells < contentStartCell)
+                            {
+                                contentStartCell = cursorCells;
+                            }
+                            else if (cursorCells > contentStartCell + contentCells)
+                            {
+                                contentStartCell = cursorCells - contentCells;
+                            }
                         }
                     }
+
+                    TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell, out var viewStartIndex);
+                    TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out var viewEndIndex);
+
+                    viewStartIndex = Math.Clamp(viewStartIndex, 0, lineSpan.Length);
+                    viewEndIndex = Math.Clamp(viewEndIndex, viewStartIndex, lineSpan.Length);
+
+                    var left = showEllipsis && ellipsisCells > 0 && viewStartIndex > 0;
+                    var right = showEllipsis && ellipsisCells > 0 && viewEndIndex < lineSpan.Length;
+
+                    if (left)
+                    {
+                        _writerUnsafe.Foreground(ConsoleColor.DarkGray);
+                        _writerUnsafe.Write(options.Ellipsis);
+                        _writerUnsafe.ResetStyle();
+                    }
+
+                    var viewLength = viewEndIndex - viewStartIndex;
+                    if (options.MarkupRenderer is { } renderer)
+                    {
+                        var markup = renderer(lineSpan, controller.CursorIndex, viewStartIndex, viewLength, controller.SelectionStart, controller.SelectionLength);
+                        _markupUnsafe!.Write(markup);
+                    }
+                    else if (viewLength > 0)
+                    {
+                        _markupUnsafe!.WriteEscape(lineSpan.Slice(viewStartIndex, viewLength));
+                    }
+
+                    if (right)
+                    {
+                        _writerUnsafe.Foreground(ConsoleColor.DarkGray);
+                        _writerUnsafe.Write(options.Ellipsis);
+                        _writerUnsafe.ResetStyle();
+                    }
+
+                    _writerUnsafe.EraseLine(0);
+
+                    var cursorInViewCells = cursorCells - contentStartCell;
+                    if (cursorInViewCells < 0) cursorInViewCells = 0;
+                    if (cursorInViewCells > contentCells) cursorInViewCells = contentCells;
+
+                    var cursorColumn = origin.Column + promptCells + (left ? ellipsisCells : 0) + cursorInViewCells;
+                    _backend.SetCursorPosition(new TerminalPosition(cursorColumn, origin.Row));
                 }
-
-                TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell, out var viewStartIndex);
-                TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out var viewEndIndex);
-
-                viewStartIndex = Math.Clamp(viewStartIndex, 0, lineSpan.Length);
-                viewEndIndex = Math.Clamp(viewEndIndex, viewStartIndex, lineSpan.Length);
-
-                var left = showEllipsis && ellipsisCells > 0 && viewStartIndex > 0;
-                var right = showEllipsis && ellipsisCells > 0 && viewEndIndex < lineSpan.Length;
-
-                if (left)
+                finally
                 {
-                    _writerUnsafe.Foreground(ConsoleColor.DarkGray);
-                    _writerUnsafe.Write(options.Ellipsis);
-                    _writerUnsafe.ResetStyle();
+                    if (restoreCursorVisible)
+                    {
+                        _backend.SetCursorVisible(true);
+                    }
                 }
-
-                var viewLength = viewEndIndex - viewStartIndex;
-                if (options.MarkupRenderer is { } renderer)
-                {
-                    var markup = renderer(lineSpan, controller.CursorIndex, viewStartIndex, viewLength, controller.SelectionStart, controller.SelectionLength);
-                    _markupUnsafe!.Write(markup);
-                }
-                else if (viewLength > 0)
-                {
-                    _markupUnsafe!.WriteEscape(lineSpan.Slice(viewStartIndex, viewLength));
-                }
-
-                if (right)
-                {
-                    _writerUnsafe.Foreground(ConsoleColor.DarkGray);
-                    _writerUnsafe.Write(options.Ellipsis);
-                    _writerUnsafe.ResetStyle();
-                }
-
-                _writerUnsafe.EraseLine(0);
-
-                var cursorInViewCells = cursorCells - contentStartCell;
-                if (cursorInViewCells < 0) cursorInViewCells = 0;
-                if (cursorInViewCells > contentCells) cursorInViewCells = contentCells;
-
-                var cursorColumn = origin.Column + promptCells + (left ? ellipsisCells : 0) + cursorInViewCells;
-                _backend.SetCursorPosition(new TerminalPosition(cursorColumn, origin.Row));
             }
         }
     }

@@ -288,4 +288,20 @@ public sealed class TerminalReadLineEditorTests
 
         Assert.AreEqual("hello X", await task);
     }
+
+    [TestMethod]
+    public async Task ReadLineAsync_Render_DoesNotChangeCursorVisibility()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.Cursor.Visible = false;
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = true, EnableEditing = true }).AsTask();
+        backend.PushEvent(new TerminalTextEvent { Text = "abc" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("abc", await task);
+        Assert.IsFalse(Terminal.Cursor.Visible);
+    }
 }
