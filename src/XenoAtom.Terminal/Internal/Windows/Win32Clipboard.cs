@@ -5,7 +5,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace XenoAtom.Terminal.Backends;
+namespace XenoAtom.Terminal.Internal.Windows;
 
 internal static class Win32Clipboard
 {
