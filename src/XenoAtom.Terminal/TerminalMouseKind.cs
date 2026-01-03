@@ -25,6 +25,11 @@ public enum TerminalMouseKind
     Up,
 
     /// <summary>
+    /// Button double clicked.
+    /// </summary>
+    DoubleClick,
+
+    /// <summary>
     /// Mouse wheel event.
     /// </summary>
     Wheel,

@@ -104,6 +104,31 @@ public class TerminalTests
     }
 
     [TestMethod]
+    public async Task ReadEventAsync_SynthesizesDoubleClick_FromMouseDown()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Clicks });
+
+        backend.PushEvent(new TerminalMouseEvent { X = 5, Y = 2, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Down });
+        backend.PushEvent(new TerminalMouseEvent { X = 5, Y = 2, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Up });
+        backend.PushEvent(new TerminalMouseEvent { X = 5, Y = 2, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Down });
+        backend.PushEvent(new TerminalMouseEvent { X = 5, Y = 2, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Up });
+
+        Assert.AreEqual(TerminalMouseKind.Down, ((TerminalMouseEvent)await Terminal.ReadEventAsync()).Kind);
+        Assert.AreEqual(TerminalMouseKind.Up, ((TerminalMouseEvent)await Terminal.ReadEventAsync()).Kind);
+        Assert.AreEqual(TerminalMouseKind.Down, ((TerminalMouseEvent)await Terminal.ReadEventAsync()).Kind);
+
+        var doubleClick = (TerminalMouseEvent)await Terminal.ReadEventAsync();
+        Assert.AreEqual(TerminalMouseKind.DoubleClick, doubleClick.Kind);
+        Assert.AreEqual(TerminalMouseButton.Left, doubleClick.Button);
+        Assert.AreEqual(5, doubleClick.X);
+        Assert.AreEqual(2, doubleClick.Y);
+
+        Assert.AreEqual(TerminalMouseKind.Up, ((TerminalMouseEvent)await Terminal.ReadEventAsync()).Kind);
+    }
+
+    [TestMethod]
     public async Task ReadEventAsync_FiltersMouseMoveButKeepsDrag_WhenMouseModeDrag()
     {
         var backend = new InMemoryTerminalBackend();

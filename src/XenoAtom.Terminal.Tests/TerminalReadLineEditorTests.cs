@@ -258,4 +258,34 @@ public sealed class TerminalReadLineEditorTests
 
         Assert.AreEqual("aXd", await task);
     }
+
+    [TestMethod]
+    public async Task ReadLineAsync_MouseEditing_DoubleClickSelectsWord()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, EnableResizeEvents = false, MouseMode = TerminalMouseMode.Drag });
+
+        var options = new TerminalReadLineOptions
+        {
+            Echo = false,
+            EnableEditing = true,
+            EnableMouseEditing = true,
+        };
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "hello world" });
+
+        // Double-click within "world" (x=8 => 'r').
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Down, Button = TerminalMouseButton.Left, X = 8, Y = 0 });
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = 8, Y = 0 });
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Down, Button = TerminalMouseButton.Left, X = 8, Y = 0 });
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = 8, Y = 0 });
+
+        backend.PushEvent(new TerminalTextEvent { Text = "X" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("hello X", await task);
+    }
 }

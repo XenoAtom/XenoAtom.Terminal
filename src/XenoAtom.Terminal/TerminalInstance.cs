@@ -19,6 +19,11 @@ public sealed partial class TerminalInstance : IDisposable
     private readonly Lock _defaultInputQueueLock = new();
     private readonly Queue<TerminalEvent> _defaultInputQueue = new();
 
+    private long _lastMouseDownTick = -1;
+    private int _lastMouseDownX = -1;
+    private int _lastMouseDownY = -1;
+    private TerminalMouseButton _lastMouseDownButton = TerminalMouseButton.None;
+
     private bool _isDisposed;
     private bool _isInitialized;
 
@@ -539,6 +544,7 @@ public sealed partial class TerminalInstance : IDisposable
         lock (_defaultInputQueueLock)
         {
             _defaultInputQueue.Clear();
+            ResetDoubleClickState();
         }
         Volatile.Write(ref _inputOptions, null);
     }
@@ -859,6 +865,7 @@ public sealed partial class TerminalInstance : IDisposable
         lock (_defaultInputQueueLock)
         {
             _defaultInputQueue.Clear();
+            ResetDoubleClickState();
         }
 
         // Drain any pending events from the backend default stream so subsequent ReadKey/ReadLine
@@ -1154,8 +1161,8 @@ public sealed partial class TerminalInstance : IDisposable
         return options.MouseMode switch
         {
             TerminalMouseMode.Off => false,
-            TerminalMouseMode.Clicks => mouse.Kind is TerminalMouseKind.Down or TerminalMouseKind.Up or TerminalMouseKind.Wheel,
-            TerminalMouseMode.Drag => mouse.Kind is TerminalMouseKind.Down or TerminalMouseKind.Up or TerminalMouseKind.Wheel or TerminalMouseKind.Drag,
+            TerminalMouseMode.Clicks => mouse.Kind is TerminalMouseKind.Down or TerminalMouseKind.Up or TerminalMouseKind.DoubleClick or TerminalMouseKind.Wheel,
+            TerminalMouseMode.Drag => mouse.Kind is TerminalMouseKind.Down or TerminalMouseKind.Up or TerminalMouseKind.DoubleClick or TerminalMouseKind.Wheel or TerminalMouseKind.Drag,
             _ => true,
         };
     }
@@ -1201,7 +1208,13 @@ public sealed partial class TerminalInstance : IDisposable
             }
         }
 
-        return Backend.TryReadEvent(out ev);
+        if (!Backend.TryReadEvent(out ev))
+        {
+            return false;
+        }
+
+        EnqueueSynthesizedMouseEventsAfterReturn(ev);
+        return true;
     }
 
     private bool TryPeekDefaultEvent(out TerminalEvent ev)
@@ -1231,6 +1244,7 @@ public sealed partial class TerminalInstance : IDisposable
             lock (_defaultInputQueueLock)
             {
                 _defaultInputQueue.Enqueue(ev);
+                EnqueueSynthesizedMouseEventsUnsafe(ev);
             }
         }
     }
@@ -1245,7 +1259,75 @@ public sealed partial class TerminalInstance : IDisposable
             }
         }
 
-        return await Backend.ReadEventAsync(cancellationToken).ConfigureAwait(false);
+        var ev = await Backend.ReadEventAsync(cancellationToken).ConfigureAwait(false);
+        EnqueueSynthesizedMouseEventsAfterReturn(ev);
+        return ev;
+    }
+
+    private void EnqueueSynthesizedMouseEventsAfterReturn(TerminalEvent ev)
+    {
+        lock (_defaultInputQueueLock)
+        {
+            EnqueueSynthesizedMouseEventsUnsafe(ev);
+        }
+    }
+
+    private void EnqueueSynthesizedMouseEventsUnsafe(TerminalEvent ev)
+    {
+        if (ev is not TerminalMouseEvent { Kind: TerminalMouseKind.Down } mouse)
+        {
+            return;
+        }
+
+        var options = Volatile.Read(ref _inputOptions);
+        if (options is null || !options.EnableMouseEvents || options.MouseMode == TerminalMouseMode.Off)
+        {
+            return;
+        }
+
+        if (mouse.Button == TerminalMouseButton.None || mouse.Button == TerminalMouseButton.Wheel)
+        {
+            return;
+        }
+
+        const int doubleClickThresholdMs = 500;
+        const int doubleClickMaxDistanceCells = 1;
+
+        var now = Environment.TickCount64;
+        var isDoubleClick =
+            _lastMouseDownTick >= 0
+            && unchecked(now - _lastMouseDownTick) <= doubleClickThresholdMs
+            && mouse.Button == _lastMouseDownButton
+            && Math.Abs(mouse.X - _lastMouseDownX) <= doubleClickMaxDistanceCells
+            && Math.Abs(mouse.Y - _lastMouseDownY) <= doubleClickMaxDistanceCells;
+
+        _lastMouseDownTick = now;
+        _lastMouseDownX = mouse.X;
+        _lastMouseDownY = mouse.Y;
+        _lastMouseDownButton = mouse.Button;
+
+        if (!isDoubleClick)
+        {
+            return;
+        }
+
+        _defaultInputQueue.Enqueue(new TerminalMouseEvent
+        {
+            X = mouse.X,
+            Y = mouse.Y,
+            Button = mouse.Button,
+            Kind = TerminalMouseKind.DoubleClick,
+            Modifiers = mouse.Modifiers,
+            WheelDelta = 0,
+        });
+    }
+
+    private void ResetDoubleClickState()
+    {
+        _lastMouseDownTick = -1;
+        _lastMouseDownX = -1;
+        _lastMouseDownY = -1;
+        _lastMouseDownButton = TerminalMouseButton.None;
     }
 
     private void EchoKey(TerminalKeyEvent key)

@@ -195,6 +195,7 @@ public sealed partial class TerminalInstance
         var historyIndex = -1;
         string? historySnapshot = null;
         var mouseSelecting = false;
+        var suppressMouseUpSelectionUpdate = false;
 
         var origin = GetCursorPosition();
         var windowColumns = Math.Max(1, GetWindowSize().Columns);
@@ -524,7 +525,14 @@ public sealed partial class TerminalInstance
             {
                 case TerminalMouseKind.Down when mouse.Button == TerminalMouseButton.Left:
                     mouseSelecting = true;
+                    suppressMouseUpSelectionUpdate = false;
                     controller.BeginSelection(index);
+                    return true;
+
+                case TerminalMouseKind.DoubleClick when mouse.Button == TerminalMouseButton.Left:
+                    mouseSelecting = true;
+                    suppressMouseUpSelectionUpdate = true;
+                    SelectWord(lineSpan, index);
                     return true;
 
                 case TerminalMouseKind.Drag:
@@ -542,11 +550,60 @@ public sealed partial class TerminalInstance
                         return false;
                     }
                     mouseSelecting = false;
+                    if (suppressMouseUpSelectionUpdate)
+                    {
+                        suppressMouseUpSelectionUpdate = false;
+                        return true;
+                    }
                     controller.SetCursorIndex(index, extendSelection: true);
                     return true;
             }
 
             return false;
+
+            void SelectWord(ReadOnlySpan<char> text, int clickIndex)
+            {
+                if (text.IsEmpty)
+                {
+                    return;
+                }
+
+                var probe = Math.Clamp(clickIndex, 0, text.Length);
+                if (probe == text.Length && probe > 0)
+                {
+                    probe = TerminalCellWidth.GetPreviousRuneIndex(text, probe);
+                }
+                else if (probe < text.Length && char.IsWhiteSpace(text[probe]) && probe > 0)
+                {
+                    probe = TerminalCellWidth.GetPreviousRuneIndex(text, probe);
+                }
+
+                probe = Math.Clamp(probe, 0, Math.Max(0, text.Length - 1));
+                var isWhitespace = char.IsWhiteSpace(text[probe]);
+
+                var start = probe;
+                while (start > 0)
+                {
+                    var prev = TerminalCellWidth.GetPreviousRuneIndex(text, start);
+                    if (char.IsWhiteSpace(text[prev]) != isWhitespace)
+                    {
+                        break;
+                    }
+                    start = prev;
+                }
+
+                var endExclusive = TerminalCellWidth.GetNextRuneIndex(text, probe);
+                while (endExclusive < text.Length)
+                {
+                    if (char.IsWhiteSpace(text[endExclusive]) != isWhitespace)
+                    {
+                        break;
+                    }
+                    endExclusive = TerminalCellWidth.GetNextRuneIndex(text, endExclusive);
+                }
+
+                controller.Select(start, endExclusive);
+            }
         }
 
         bool HandleEditorKey(TerminalKeyEvent key)
