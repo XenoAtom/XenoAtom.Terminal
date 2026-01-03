@@ -26,7 +26,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 - **Input (unified events)**:
   - Single event stream for **keys**, **text**, **mouse**, **resize**, **signals**
   - Async + cancellation-friendly APIs for TUI loops
-- **Interactive ReadLine editor** (best effort):
+- **Interactive ReadLine editor**:
   - Cursor movement, mid-line insert/delete, word navigation/delete
   - Selection by keyboard (Shift) and **mouse click/drag**
   - History stored on the `TerminalReadLineOptions` instance (shareable, not global)

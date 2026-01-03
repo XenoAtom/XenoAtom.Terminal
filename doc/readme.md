@@ -6,6 +6,40 @@ It keeps a familiar Console-like surface while adding terminal-native features t
 > [!NOTE]
 > XenoAtom.Terminal is a terminal API, not a widget framework. It focuses on safe I/O, state/scopes, and input events; higher-level libraries can build screen buffers and widgets on top.
 
+- [Contents](#contents)
+- [Getting started](#getting-started)
+  - [Initialization](#initialization)
+- [Capabilities and backends](#capabilities-and-backends)
+- [Output](#output)
+  - [Plain text output (serialized)](#plain-text-output-serialized)
+  - [ANSI-aware output (`AnsiWriter`)](#ansi-aware-output-ansiwriter)
+  - [Markup](#markup)
+  - [Atomic output](#atomic-output)
+  - [Links (OSC 8)](#links-osc-8)
+- [Console-like state (title, style, cursor, window)](#console-like-state-title-style-cursor-window)
+  - [Title](#title)
+  - [Style and colors (`AnsiStyle` / `AnsiColor`)](#style-and-colors-ansistyle--ansicolor)
+  - [Cursor](#cursor)
+  - [Window and buffer sizes](#window-and-buffer-sizes)
+- [Input](#input)
+  - [Important: do not mix Console input APIs](#important-do-not-mix-console-input-apis)
+  - [Event types](#event-types)
+  - [ReadKey / KeyAvailable (Console-like)](#readkey--keyavailable-console-like)
+  - [Ctrl+C behavior](#ctrlc-behavior)
+- [ReadLine editor](#readline-editor)
+  - [Basic usage](#basic-usage)
+  - [Prompt (plain or markup)](#prompt-plain-or-markup)
+  - [History (scoped, not global)](#history-scoped-not-global)
+  - [Completion (Tab)](#completion-tab)
+  - [Extending the editor (custom key/mouse handlers)](#extending-the-editor-custom-keymouse-handlers)
+  - [Mouse editing (optional)](#mouse-editing-optional)
+  - [Rendering and styling the editable line](#rendering-and-styling-the-editable-line)
+  - [Fixed-width view, ellipsis, max length](#fixed-width-view-ellipsis-max-length)
+  - [Cancellation and newline emission](#cancellation-and-newline-emission)
+- [Scopes](#scopes)
+- [Testing](#testing)
+- [Samples](#samples)
+
 ## Contents
 
 - Getting started
@@ -235,7 +269,7 @@ If you want Console-like behavior where Ctrl+C is treated as input (best effort)
 Terminal.TreatControlCAsInput = true;
 ```
 
-## ReadLine editor (detailed)
+## ReadLine editor
 
 `Terminal.ReadLineAsync(...)` is built on the terminal event stream (so apps don't need `Console.ReadLine`).
 
