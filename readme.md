@@ -18,18 +18,27 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 
 ## ✨ Features
 
-- Modern `System.Console` replacement (same “feel”, more capabilities)
-- Unified input events for TUIs: keys, text, mouse, resize, signals
-- Rich output: ANSI styling + markup rendering (powered by XenoAtom.Ansi)
-- Thread-safe output: serialized writers to avoid interleaved escape sequences
-- Atomic writes: build multi-step output without tearing between threads
-- Interactive `ReadLine`: editing, selection, history, completion (best effort)
-- Portable terminal state: style/colors/decorations, title, cursor, window size (best effort)
-- Reliable scopes: alternate screen, raw/cbreak mode, mouse reporting, bracketed paste, hide cursor
-- CI-friendly: detects popular CI terminals and keeps colors when output is redirected
-- Deterministic tests: in-memory backend to capture output and inject input events
-- Cross-platform backends: Windows Console + Unix (Linux/macOS)
-- `net10.0`+ and NativeAOT-friendly design
+- **Console-compatible API surface**: Title, cursor, window, `ReadKey`/`ReadLine`-style workflows
+- **Output (ANSI-safe)**:
+  - **Serialized writers** prevent interleaved escape sequences across threads
+  - **Atomic writes** for multi-step output without tearing
+  - **Markup + ANSI styling** (powered by [XenoAtom.Ansi](https://github.com/XenoAtom/XenoAtom.Ansi))
+- **Input (unified events)**:
+  - Single event stream for **keys**, **text**, **mouse**, **resize**, **signals**
+  - Async + cancellation-friendly APIs for TUI loops
+- **Interactive ReadLine editor** (best effort):
+  - Cursor movement, mid-line insert/delete, word navigation/delete
+  - Selection by keyboard (Shift) and **mouse click/drag**
+  - History stored on the `TerminalReadLineOptions` instance (shareable, not global)
+  - Completion + extensibility via **custom key/mouse handlers** (`TerminalReadLineController`)
+  - Styled prompt (`PromptMarkup`) + custom line rendering (`MarkupRenderer`)
+- **Scopes + state management**:
+  - Reliable scopes: alternate screen, raw/cbreak mode, bracketed paste, mouse reporting, hide cursor
+  - Best-effort state: style/colors/decorations, title, cursor position/visibility, window size
+- **CI + testing**:
+  - CI-aware backend keeps colors when output is redirected
+  - In-memory backend for deterministic tests (capture output + inject events)
+- **Cross-platform + AOT**: Windows Console + Unix (Linux/macOS), `net10.0`+ and NativeAOT-friendly design
 
 > [!NOTE]
 > XenoAtom.Terminal is a terminal API, not a widget/UI framework.

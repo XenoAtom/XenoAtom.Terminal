@@ -186,73 +186,21 @@ public sealed partial class TerminalInstance
             promptMarkup = string.Empty;
         }
 
-        var promptCells = !string.IsNullOrEmpty(promptMarkup)
-            ? MeasureStyledWidth(promptMarkup)
-            : TerminalCellWidth.GetWidth(promptPlain.AsSpan());
+        var promptCells = !string.IsNullOrEmpty(promptMarkup) ? MeasureStyledWidth(promptMarkup) : TerminalCellWidth.GetWidth(promptPlain.AsSpan());
 
         var buffer = new List<char>(64);
-        var cursorIndex = 0;
-        var selectionAnchor = -1;
-        var selectionStart = 0;
-        var selectionLength = 0;
+        var controller = new TerminalReadLineController(buffer, options.MaxLength);
+        controller.Activate();
 
         var historyIndex = -1;
         string? historySnapshot = null;
+        var mouseSelecting = false;
 
         var origin = GetCursorPosition();
         var windowColumns = Math.Max(1, GetWindowSize().Columns);
         var availableCells = Math.Max(1, options.ViewWidth ?? Math.Max(1, windowColumns - origin.Column - promptCells));
 
         var baseStyle = _style;
-
-        void MoveCursor(int newIndex, bool extendSelection)
-        {
-            newIndex = Math.Clamp(newIndex, 0, buffer.Count);
-            if (!extendSelection)
-            {
-                cursorIndex = newIndex;
-                ClearSelection();
-                return;
-            }
-
-            if (selectionAnchor < 0)
-            {
-                selectionAnchor = cursorIndex;
-            }
-
-            cursorIndex = newIndex;
-            var a = selectionAnchor;
-            var b = cursorIndex;
-            if (a <= b)
-            {
-                selectionStart = a;
-                selectionLength = b - a;
-            }
-            else
-            {
-                selectionStart = b;
-                selectionLength = a - b;
-            }
-        }
-
-        void ClearSelection()
-        {
-            selectionAnchor = -1;
-            selectionStart = 0;
-            selectionLength = 0;
-        }
-
-        void DeleteSelectionIfAny()
-        {
-            if (selectionLength <= 0)
-            {
-                return;
-            }
-
-            buffer.RemoveRange(selectionStart, selectionLength);
-            cursorIndex = selectionStart;
-            ClearSelection();
-        }
 
         if (options.Echo)
         {
@@ -296,7 +244,7 @@ public sealed partial class TerminalInstance
                         {
                             if (options.Echo)
                             {
-                                cursorIndex = buffer.Count;
+                                controller.SetCursorIndex(buffer.Count, extendSelection: false);
                                 Render();
                                 if (options.EmitNewLineOnAccept)
                                 {
@@ -319,7 +267,7 @@ public sealed partial class TerminalInstance
                         {
                             if (options.Echo)
                             {
-                                cursorIndex = buffer.Count;
+                                controller.SetCursorIndex(buffer.Count, extendSelection: false);
                                 Render();
                                 if (options.EmitNewLineOnAccept)
                                 {
@@ -335,45 +283,28 @@ public sealed partial class TerminalInstance
                     }
                     break;
 
-                case TerminalKeyEvent key:
-                    if (key.Char is '\x04' && buffer.Count == 0)
+                case TerminalMouseEvent mouse:
+                    if (options.MouseHandler is { } mouseHandler)
                     {
-                        // Ctrl+D on an empty line behaves like EOF.
-                        return null;
-                    }
+                        controller.BeginCallback();
+                        mouseHandler(controller, mouse);
+                        controller.EndCallback();
 
-                    if (options.KeyHandler is { } handler)
-                    {
-                        var handling = handler(key, CollectionsMarshal.AsSpan(buffer), cursorIndex, selectionStart, selectionLength);
-                        if (handling.Cancel)
+                        if (controller.CancelRequested)
                         {
-                            throw new OperationCanceledException("ReadLine canceled by key handler.");
+                            throw new OperationCanceledException("ReadLine canceled by mouse handler.");
                         }
 
-                        if (handling.ReplaceText is not null)
+                        if (controller.TextChanged)
                         {
-                            SetBuffer(handling.ReplaceText);
-                            cursorIndex = Math.Clamp(handling.CursorIndex ?? buffer.Count, 0, buffer.Count);
                             ResetHistoryNavigation();
-                            ClearSelection();
-                        }
-                        else if (!string.IsNullOrEmpty(handling.InsertText))
-                        {
-                            InsertAtCursor(handling.InsertText.AsSpan());
-                            cursorIndex = Math.Clamp(handling.CursorIndex ?? cursorIndex, 0, buffer.Count);
-                            ResetHistoryNavigation();
-                            ClearSelection();
-                        }
-                        else if (handling.CursorIndex is { } forcedCursor)
-                        {
-                            MoveCursor(Math.Clamp(forcedCursor, 0, buffer.Count), extendSelection: false);
                         }
 
-                        if (handling.Accept)
+                        if (controller.AcceptRequested)
                         {
                             if (options.Echo)
                             {
-                                cursorIndex = buffer.Count;
+                                controller.SetCursorIndex(buffer.Count, extendSelection: false);
                                 Render();
                                 if (options.EmitNewLineOnAccept)
                                 {
@@ -385,7 +316,60 @@ public sealed partial class TerminalInstance
                             return new string(CollectionsMarshal.AsSpan(buffer));
                         }
 
-                        if (handling.Handled)
+                        if (controller.Handled)
+                        {
+                            RenderIfEcho();
+                            break;
+                        }
+                    }
+
+                    if (options.EnableMouseEditing && HandleEditorMouse(mouse))
+                    {
+                        RenderIfEcho();
+                    }
+
+                    break;
+
+                case TerminalKeyEvent key:
+                    if (key.Char is '\x04' && buffer.Count == 0)
+                    {
+                        // Ctrl+D on an empty line behaves like EOF.
+                        return null;
+                    }
+
+                    if (options.KeyHandler is { } handler)
+                    {
+                        controller.BeginCallback();
+                        handler(controller, key);
+                        controller.EndCallback();
+
+                        if (controller.CancelRequested)
+                        {
+                            throw new OperationCanceledException("ReadLine canceled by key handler.");
+                        }
+
+                        if (controller.TextChanged)
+                        {
+                            ResetHistoryNavigation();
+                        }
+
+                        if (controller.AcceptRequested)
+                        {
+                            if (options.Echo)
+                            {
+                                controller.SetCursorIndex(buffer.Count, extendSelection: false);
+                                Render();
+                                if (options.EmitNewLineOnAccept)
+                                {
+                                    WriteLine();
+                                }
+                            }
+
+                            AddToHistoryIfEnabled(options, buffer);
+                            return new string(CollectionsMarshal.AsSpan(buffer));
+                        }
+
+                        if (controller.Handled)
                         {
                             RenderIfEcho();
                             break;
@@ -396,7 +380,7 @@ public sealed partial class TerminalInstance
                     {
                         if (options.Echo)
                         {
-                            cursorIndex = buffer.Count;
+                            controller.SetCursorIndex(buffer.Count, extendSelection: false);
                             Render();
                             if (options.EmitNewLineOnAccept)
                             {
@@ -420,6 +404,7 @@ public sealed partial class TerminalInstance
         finally
         {
             RestoreStyle();
+            controller.Deactivate();
         }
 
         void RenderIfEcho()
@@ -444,26 +429,143 @@ public sealed partial class TerminalInstance
             historySnapshot = null;
         }
 
+        void ComputeView(ReadOnlySpan<char> lineSpan, out int contentStartCell, out int contentCells, out int viewStartIndex, out int viewEndIndex, out bool left, out bool right, out int ellipsisCells)
+        {
+            var totalCells = TerminalCellWidth.GetWidth(lineSpan);
+            var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..controller.CursorIndex]);
+
+            var showEllipsis = options.ShowEllipsis && !string.IsNullOrEmpty(options.Ellipsis);
+            ellipsisCells = showEllipsis ? TerminalCellWidth.GetWidth(options.Ellipsis.AsSpan()) : 0;
+
+            contentStartCell = 0;
+            contentCells = availableCells;
+
+            if (totalCells > availableCells && showEllipsis && ellipsisCells > 0)
+            {
+                contentStartCell = Math.Max(0, cursorCells - (availableCells / 2));
+
+                for (var i = 0; i < 2; i++)
+                {
+                    var showLeft = contentStartCell > 0;
+                    var remaining = totalCells - contentStartCell;
+                    var showRight = remaining > (availableCells - (showLeft ? ellipsisCells : 0));
+                    contentCells = availableCells - (showLeft ? ellipsisCells : 0) - (showRight ? ellipsisCells : 0);
+                    if (contentCells < 1)
+                    {
+                        contentCells = 1;
+                    }
+
+                    if (!showRight)
+                    {
+                        contentStartCell = Math.Max(0, totalCells - contentCells);
+                    }
+
+                    if (cursorCells < contentStartCell)
+                    {
+                        contentStartCell = cursorCells;
+                    }
+                    else if (cursorCells > contentStartCell + contentCells)
+                    {
+                        contentStartCell = cursorCells - contentCells;
+                    }
+                }
+            }
+
+            TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell, out viewStartIndex);
+            TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out viewEndIndex);
+
+            viewStartIndex = Math.Clamp(viewStartIndex, 0, lineSpan.Length);
+            viewEndIndex = Math.Clamp(viewEndIndex, viewStartIndex, lineSpan.Length);
+
+            left = showEllipsis && ellipsisCells > 0 && viewStartIndex > 0;
+            right = showEllipsis && ellipsisCells > 0 && viewEndIndex < lineSpan.Length;
+        }
+
+        bool HandleEditorMouse(TerminalMouseEvent mouse)
+        {
+            if (mouse.Y != origin.Row)
+            {
+                return false;
+            }
+
+            if (mouse.Button != TerminalMouseButton.Left && mouse.Button != TerminalMouseButton.None)
+            {
+                return false;
+            }
+
+            var lineSpan = CollectionsMarshal.AsSpan(buffer);
+            ComputeView(lineSpan, out var contentStartCell, out var contentCells, out var viewStartIndex, out var viewEndIndex, out var left, out _, out var ellipsisCells);
+
+            var promptStart = origin.Column + promptCells;
+            var textStart = promptStart + (left ? ellipsisCells : 0);
+
+            int index;
+            if (mouse.X < promptStart)
+            {
+                index = 0;
+            }
+            else if (mouse.X < textStart)
+            {
+                index = viewStartIndex;
+            }
+            else if (mouse.X >= textStart + contentCells)
+            {
+                index = viewEndIndex;
+            }
+            else
+            {
+                var inViewCell = mouse.X - textStart;
+                var globalCell = contentStartCell + inViewCell;
+                TerminalCellWidth.TryGetIndexAtCell(lineSpan, globalCell, out index);
+                index = Math.Clamp(index, 0, lineSpan.Length);
+            }
+
+            switch (mouse.Kind)
+            {
+                case TerminalMouseKind.Down when mouse.Button == TerminalMouseButton.Left:
+                    mouseSelecting = true;
+                    controller.BeginSelection(index);
+                    return true;
+
+                case TerminalMouseKind.Drag when mouse.Button == TerminalMouseButton.Left:
+                    if (!mouseSelecting)
+                    {
+                        return false;
+                    }
+                    controller.SetCursorIndex(index, extendSelection: true);
+                    return true;
+
+                case TerminalMouseKind.Up when mouse.Button == TerminalMouseButton.Left:
+                    if (!mouseSelecting)
+                    {
+                        return false;
+                    }
+                    mouseSelecting = false;
+                    controller.SetCursorIndex(index, extendSelection: true);
+                    return true;
+            }
+
+            return false;
+        }
+
         bool HandleEditorKey(TerminalKeyEvent key)
         {
             // Completion (Tab)
             if (key.Key == TerminalKey.Tab && options.CompletionHandler is { } completion)
             {
-                var result = completion(CollectionsMarshal.AsSpan(buffer), cursorIndex, selectionStart, selectionLength);
-                    if (result.Handled)
+                var result = completion(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex, controller.SelectionStart, controller.SelectionLength);
+                if (result.Handled)
+                {
+                    if (result.ReplaceText is not null)
                     {
-                        if (result.ReplaceText is not null)
-                        {
-                            SetBuffer(result.ReplaceText);
-                            cursorIndex = Math.Clamp(result.CursorIndex ?? buffer.Count, 0, buffer.Count);
-                            ClearSelection();
-                        }
-                        else if (!string.IsNullOrEmpty(result.InsertText))
-                        {
-                            InsertAtCursor(result.InsertText.AsSpan());
-                            cursorIndex = Math.Clamp(result.CursorIndex ?? cursorIndex, 0, buffer.Count);
-                            ClearSelection();
-                        }
+                        SetBuffer(result.ReplaceText);
+                        controller.SetCursorIndex(Math.Clamp(result.CursorIndex ?? buffer.Count, 0, buffer.Count), extendSelection: false);
+                    }
+                    else if (!string.IsNullOrEmpty(result.InsertText))
+                    {
+                        controller.Insert(result.InsertText.AsSpan());
+                        controller.SetCursorIndex(Math.Clamp(result.CursorIndex ?? controller.CursorIndex, 0, buffer.Count), extendSelection: false);
+                    }
 
                     ResetHistoryNavigation();
                     return true;
@@ -481,27 +583,27 @@ public sealed partial class TerminalInstance
                 if (wordModifier && shift)
                 {
                     var newIndex = key.Key == TerminalKey.Left
-                        ? MoveWordLeft(CollectionsMarshal.AsSpan(buffer), cursorIndex)
-                        : MoveWordRight(CollectionsMarshal.AsSpan(buffer), cursorIndex);
-                    MoveCursor(newIndex, extendSelection: true);
+                        ? MoveWordLeft(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
+                        : MoveWordRight(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
+                    controller.SetCursorIndex(newIndex, extendSelection: true);
                     return true;
                 }
 
                 if (wordModifier)
                 {
                     var newIndex = key.Key == TerminalKey.Left
-                        ? MoveWordLeft(CollectionsMarshal.AsSpan(buffer), cursorIndex)
-                        : MoveWordRight(CollectionsMarshal.AsSpan(buffer), cursorIndex);
-                    MoveCursor(newIndex, extendSelection: false);
+                        ? MoveWordLeft(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
+                        : MoveWordRight(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
+                    controller.SetCursorIndex(newIndex, extendSelection: false);
                     return true;
                 }
 
                 if (shift)
                 {
                     var newIndex = key.Key == TerminalKey.Left
-                        ? TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), cursorIndex)
-                        : TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), cursorIndex);
-                    MoveCursor(newIndex, extendSelection: true);
+                        ? TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
+                        : TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
+                    controller.SetCursorIndex(newIndex, extendSelection: true);
                     return true;
                 }
             }
@@ -509,84 +611,84 @@ public sealed partial class TerminalInstance
             switch (key.Key)
             {
                 case TerminalKey.Left:
-                    MoveCursor(TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), cursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalKey.Right:
-                    MoveCursor(TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), cursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalKey.Home:
-                    MoveCursor(0, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    controller.SetCursorIndex(0, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
                     return true;
                 case TerminalKey.End:
-                    MoveCursor(buffer.Count, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    controller.SetCursorIndex(buffer.Count, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
                     return true;
                 case TerminalKey.Backspace:
-                    if (selectionLength > 0)
+                    if (controller.HasSelection)
                     {
-                        DeleteSelectionIfAny();
+                        controller.DeleteSelection();
                         ResetHistoryNavigation();
                         return true;
                     }
-                    if ((key.Modifiers & (TerminalModifiers.Ctrl | TerminalModifiers.Alt)) != 0 && cursorIndex > 0)
+                    if ((key.Modifiers & (TerminalModifiers.Ctrl | TerminalModifiers.Alt)) != 0 && controller.CursorIndex > 0)
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
-                        var start = MoveWordLeft(span, cursorIndex);
-                        if (start != cursorIndex)
+                        var end = controller.CursorIndex;
+                        var start = MoveWordLeft(span, end);
+                        if (start != end)
                         {
-                            buffer.RemoveRange(start, cursorIndex - start);
-                            cursorIndex = start;
+                            controller.Remove(start, end - start);
+                            controller.SetCursorIndex(start, extendSelection: false);
                             ResetHistoryNavigation();
-                            ClearSelection();
                             return true;
                         }
                         return false;
                     }
-                    if (cursorIndex > 0)
+                    if (controller.CursorIndex > 0)
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
-                        var prev = TerminalCellWidth.GetPreviousRuneIndex(span, cursorIndex);
-                        buffer.RemoveRange(prev, cursorIndex - prev);
-                        cursorIndex = prev;
+                        var end = controller.CursorIndex;
+                        var prev = TerminalCellWidth.GetPreviousRuneIndex(span, end);
+                        controller.Remove(prev, end - prev);
+                        controller.SetCursorIndex(prev, extendSelection: false);
                         ResetHistoryNavigation();
-                        ClearSelection();
                         return true;
                     }
                     return false;
                 case TerminalKey.Delete:
-                    if (selectionLength > 0)
+                    if (controller.HasSelection)
                     {
-                        DeleteSelectionIfAny();
+                        controller.DeleteSelection();
                         ResetHistoryNavigation();
                         return true;
                     }
-                    if ((key.Modifiers & (TerminalModifiers.Ctrl | TerminalModifiers.Alt)) != 0 && cursorIndex < buffer.Count)
+                    if ((key.Modifiers & (TerminalModifiers.Ctrl | TerminalModifiers.Alt)) != 0 && controller.CursorIndex < buffer.Count)
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
-                        var end = MoveWordRight(span, cursorIndex);
-                        if (end != cursorIndex)
+                        var start = controller.CursorIndex;
+                        var end = MoveWordRight(span, start);
+                        if (end != start)
                         {
-                            buffer.RemoveRange(cursorIndex, end - cursorIndex);
+                            controller.Remove(start, end - start);
                             ResetHistoryNavigation();
-                            ClearSelection();
                             return true;
                         }
                         return false;
                     }
-                    if (cursorIndex < buffer.Count)
+                    if (controller.CursorIndex < buffer.Count)
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
-                        var next = TerminalCellWidth.GetNextRuneIndex(span, cursorIndex);
-                        buffer.RemoveRange(cursorIndex, next - cursorIndex);
+                        var start = controller.CursorIndex;
+                        var next = TerminalCellWidth.GetNextRuneIndex(span, start);
+                        controller.Remove(start, next - start);
                         ResetHistoryNavigation();
-                        ClearSelection();
                         return true;
                     }
                     return false;
                 case TerminalKey.Up:
-                    ClearSelection();
+                    controller.ClearSelection();
                     return options.EnableHistory && NavigateHistory(-1);
                 case TerminalKey.Down:
-                    ClearSelection();
+                    controller.ClearSelection();
                     return options.EnableHistory && NavigateHistory(+1);
             }
 
@@ -605,18 +707,19 @@ public sealed partial class TerminalInstance
                 switch (lower)
                 {
                     case 'b': // Alt+B: word left
-                        MoveCursor(MoveWordLeft(CollectionsMarshal.AsSpan(buffer), cursorIndex), extendSelection: extend);
+                        controller.SetCursorIndex(MoveWordLeft(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: extend);
                         return true;
                     case 'f': // Alt+F: word right
-                        MoveCursor(MoveWordRight(CollectionsMarshal.AsSpan(buffer), cursorIndex), extendSelection: extend);
+                        controller.SetCursorIndex(MoveWordRight(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: extend);
                         return true;
                     case 'd': // Alt+D: delete word right
-                        ClearSelection();
-                        if (cursorIndex < buffer.Count)
+                        controller.ClearSelection();
+                        if (controller.CursorIndex < buffer.Count)
                         {
-                            var end = MoveWordRight(CollectionsMarshal.AsSpan(buffer), cursorIndex);
-                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(cursorIndex, end - cursorIndex));
-                            buffer.RemoveRange(cursorIndex, end - cursorIndex);
+                            var start = controller.CursorIndex;
+                            var end = MoveWordRight(CollectionsMarshal.AsSpan(buffer), start);
+                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
+                            controller.Remove(start, end - start);
                             ResetHistoryNavigation();
                             return true;
                         }
@@ -632,50 +735,53 @@ public sealed partial class TerminalInstance
             switch (ch)
             {
                 case '\x01': // Ctrl+A
-                    cursorIndex = 0;
+                    controller.SetCursorIndex(0, extendSelection: false);
                     return true;
                 case '\x05': // Ctrl+E
-                    cursorIndex = buffer.Count;
+                    controller.SetCursorIndex(buffer.Count, extendSelection: false);
                     return true;
                 case '\x02': // Ctrl+B
-                    MoveCursor(TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), cursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case '\x06': // Ctrl+F
-                    MoveCursor(TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), cursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case '\x10': // Ctrl+P
                     return options.EnableHistory && NavigateHistory(-1);
                 case '\x0E': // Ctrl+N
                     return options.EnableHistory && NavigateHistory(+1);
                 case '\x0B': // Ctrl+K
-                    ClearSelection();
-                    if (cursorIndex < buffer.Count)
+                    controller.ClearSelection();
+                    if (controller.CursorIndex < buffer.Count)
                     {
-                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer)[cursorIndex..]);
-                        buffer.RemoveRange(cursorIndex, buffer.Count - cursorIndex);
+                        var start = controller.CursorIndex;
+                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer)[start..]);
+                        controller.Remove(start, buffer.Count - start);
                         ResetHistoryNavigation();
                         return true;
                     }
                     return false;
                 case '\x15': // Ctrl+U
-                    ClearSelection();
-                    if (cursorIndex > 0)
+                    controller.ClearSelection();
+                    if (controller.CursorIndex > 0)
                     {
-                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer)[..cursorIndex]);
-                        buffer.RemoveRange(0, cursorIndex);
-                        cursorIndex = 0;
+                        var end = controller.CursorIndex;
+                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer)[..end]);
+                        controller.Remove(0, end);
+                        controller.SetCursorIndex(0, extendSelection: false);
                         ResetHistoryNavigation();
                         return true;
                     }
                     return false;
                 case '\x17': // Ctrl+W
-                    ClearSelection();
-                    if (cursorIndex > 0)
+                    controller.ClearSelection();
+                    if (controller.CursorIndex > 0)
                     {
-                        var start = MoveWordLeft(CollectionsMarshal.AsSpan(buffer), cursorIndex);
-                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, cursorIndex - start));
-                        buffer.RemoveRange(start, cursorIndex - start);
-                        cursorIndex = start;
+                        var end = controller.CursorIndex;
+                        var start = MoveWordLeft(CollectionsMarshal.AsSpan(buffer), end);
+                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
+                        controller.Remove(start, end - start);
+                        controller.SetCursorIndex(start, extendSelection: false);
                         ResetHistoryNavigation();
                         return true;
                     }
@@ -683,18 +789,15 @@ public sealed partial class TerminalInstance
                 case '\x18': // Ctrl+X
                     if (buffer.Count > 0)
                     {
-                        if (selectionLength > 0)
+                        if (controller.HasSelection)
                         {
-                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(selectionStart, selectionLength));
-                            buffer.RemoveRange(selectionStart, selectionLength);
-                            cursorIndex = selectionStart;
-                            ClearSelection();
+                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength));
+                            controller.DeleteSelection();
                         }
                         else
                         {
                             _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer));
-                            buffer.Clear();
-                            cursorIndex = 0;
+                            controller.Clear();
                         }
                         ResetHistoryNavigation();
                         return true;
@@ -703,9 +806,8 @@ public sealed partial class TerminalInstance
                 case '\x16': // Ctrl+V
                     if (!string.IsNullOrEmpty(_readLineClipboard))
                     {
-                        InsertAtCursor(_readLineClipboard.AsSpan());
+                        controller.Insert(_readLineClipboard.AsSpan());
                         ResetHistoryNavigation();
-                        ClearSelection();
                         return true;
                     }
                     return false;
@@ -805,8 +907,7 @@ public sealed partial class TerminalInstance
             historyIndex = newIndex;
             var newText = historyIndex == count ? historySnapshot ?? string.Empty : (options.History.GetAt(historyIndex) ?? string.Empty);
             SetBuffer(newText);
-            cursorIndex = buffer.Count;
-            ClearSelection();
+            controller.SetCursorIndex(buffer.Count, extendSelection: false);
             return true;
         }
 
@@ -831,48 +932,17 @@ public sealed partial class TerminalInstance
             {
                 if (newlineIndex > 0)
                 {
-                    InsertAtCursor(text[..newlineIndex]);
+                    controller.Insert(text[..newlineIndex]);
+                    ResetHistoryNavigation();
                 }
 
                 acceptedLine = new string(CollectionsMarshal.AsSpan(buffer));
                 return true;
             }
 
-            InsertAtCursor(text);
-            return false;
-        }
-
-        void InsertAtCursor(ReadOnlySpan<char> text)
-        {
-            if (text.IsEmpty)
-            {
-                return;
-            }
-
-            if (options.MaxLength is { } maxLen)
-            {
-                var remaining = maxLen - buffer.Count;
-                if (remaining <= 0)
-                {
-                    return;
-                }
-
-                if (text.Length > remaining)
-                {
-                    text = text[..remaining];
-                }
-            }
-
-            DeleteSelectionIfAny();
-
-            var oldCount = buffer.Count;
-            CollectionsMarshal.SetCount(buffer, oldCount + text.Length);
-            var span = CollectionsMarshal.AsSpan(buffer);
-            span.Slice(cursorIndex, oldCount - cursorIndex).CopyTo(span.Slice(cursorIndex + text.Length));
-            text.CopyTo(span.Slice(cursorIndex, text.Length));
-            cursorIndex += text.Length;
+            controller.Insert(text);
             ResetHistoryNavigation();
-            ClearSelection();
+            return false;
         }
 
         void Render()
@@ -895,7 +965,7 @@ public sealed partial class TerminalInstance
 
                 var lineSpan = CollectionsMarshal.AsSpan(buffer);
                 var totalCells = TerminalCellWidth.GetWidth(lineSpan);
-                var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..cursorIndex]);
+                var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..controller.CursorIndex]);
 
                 var showEllipsis = options.ShowEllipsis && !string.IsNullOrEmpty(options.Ellipsis);
                 var ellipsisCells = showEllipsis ? TerminalCellWidth.GetWidth(options.Ellipsis.AsSpan()) : 0;
@@ -953,7 +1023,7 @@ public sealed partial class TerminalInstance
                 var viewLength = viewEndIndex - viewStartIndex;
                 if (options.MarkupRenderer is { } renderer)
                 {
-                    var markup = renderer(lineSpan, cursorIndex, viewStartIndex, viewLength, selectionStart, selectionLength);
+                    var markup = renderer(lineSpan, controller.CursorIndex, viewStartIndex, viewLength, controller.SelectionStart, controller.SelectionLength);
                     _markupUnsafe!.Write(markup);
                 }
                 else if (viewLength > 0)

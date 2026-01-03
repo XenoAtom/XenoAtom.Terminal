@@ -202,4 +202,60 @@ public sealed class TerminalReadLineEditorTests
 
         Assert.AreEqual("hello ", await task);
     }
+
+    [TestMethod]
+    public async Task ReadLineAsync_KeyHandler_CanEditLine_WithController()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var options = new TerminalReadLineOptions
+        {
+            Echo = false,
+            EnableEditing = true,
+            KeyHandler = static (controller, key) =>
+            {
+                if (key.Key == TerminalKey.F1)
+                {
+                    controller.Insert("X".AsSpan());
+                }
+            },
+        };
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "ab" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.F1 });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("aXb", await task);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_MouseEditing_CanSelectAndReplace()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, EnableResizeEvents = false, MouseMode = TerminalMouseMode.Drag });
+
+        var options = new TerminalReadLineOptions
+        {
+            Echo = false,
+            EnableEditing = true,
+            EnableMouseEditing = true,
+        };
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "abcd" });
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Down, Button = TerminalMouseButton.Left, X = 1, Y = 0 });
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Drag, Button = TerminalMouseButton.Left, X = 3, Y = 0 });
+        backend.PushEvent(new TerminalMouseEvent { Kind = TerminalMouseKind.Up, Button = TerminalMouseButton.Left, X = 3, Y = 0 });
+        backend.PushEvent(new TerminalTextEvent { Text = "X" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("aXd", await task);
+    }
 }

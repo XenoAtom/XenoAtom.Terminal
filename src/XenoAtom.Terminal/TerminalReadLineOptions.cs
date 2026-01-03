@@ -95,9 +95,19 @@ public sealed class TerminalReadLineOptions
     public bool EnableBracketedPaste { get; set; } = true;
 
     /// <summary>
+    /// Enables mouse-based editing (cursor positioning and selection) when mouse events are available.
+    /// </summary>
+    public bool EnableMouseEditing { get; set; }
+
+    /// <summary>
     /// Optional key handler invoked before default editor handling.
     /// </summary>
     public TerminalReadLineKeyHandler? KeyHandler { get; set; }
+
+    /// <summary>
+    /// Optional mouse handler invoked before default editor handling.
+    /// </summary>
+    public TerminalReadLineMouseHandler? MouseHandler { get; set; }
 
     /// <summary>
     /// Optional completion handler invoked for completion requests (Tab).

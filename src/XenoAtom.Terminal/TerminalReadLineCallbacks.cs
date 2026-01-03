@@ -7,7 +7,12 @@ namespace XenoAtom.Terminal;
 /// <summary>
 /// A key handler invoked by the interactive line editor before applying default behavior.
 /// </summary>
-public delegate TerminalReadLineKeyHandling TerminalReadLineKeyHandler(TerminalKeyEvent key, ReadOnlySpan<char> text, int cursorIndex, int selectionStart, int selectionLength);
+public delegate void TerminalReadLineKeyHandler(TerminalReadLineController controller, TerminalKeyEvent key);
+
+/// <summary>
+/// A mouse handler invoked by the interactive line editor before applying default behavior.
+/// </summary>
+public delegate void TerminalReadLineMouseHandler(TerminalReadLineController controller, TerminalMouseEvent mouse);
 
 /// <summary>
 /// A completion handler invoked when the user requests completion (e.g. Tab).
@@ -30,42 +35,6 @@ public delegate string TerminalReadLineMarkupRenderer(ReadOnlySpan<char> text, i
 /// The returned string is interpreted as XenoAtom markup and rendered to ANSI.
 /// </remarks>
 public delegate string TerminalReadLinePromptMarkupRenderer();
-
-/// <summary>
-/// Result of <see cref="TerminalReadLineKeyHandler"/>.
-/// </summary>
-public readonly record struct TerminalReadLineKeyHandling
-{
-    /// <summary>
-    /// Gets whether the key was handled and default behavior should be skipped.
-    /// </summary>
-    public bool Handled { get; init; }
-
-    /// <summary>
-    /// Requests accepting the current line immediately.
-    /// </summary>
-    public bool Accept { get; init; }
-
-    /// <summary>
-    /// Requests canceling the read.
-    /// </summary>
-    public bool Cancel { get; init; }
-
-    /// <summary>
-    /// Replaces the entire line content.
-    /// </summary>
-    public string? ReplaceText { get; init; }
-
-    /// <summary>
-    /// Inserts text at the current cursor position.
-    /// </summary>
-    public string? InsertText { get; init; }
-
-    /// <summary>
-    /// Sets the cursor index after applying changes (0..Length in UTF-16 code units).
-    /// </summary>
-    public int? CursorIndex { get; init; }
-}
 
 /// <summary>
 /// Result of <see cref="TerminalReadLineCompletionHandler"/>.

@@ -1,44 +1,26 @@
 # XenoAtom.Terminal User Guide
 
 XenoAtom.Terminal is a modern replacement for `System.Console` designed for TUI/CLI apps.
-It keeps the familiar Console surface (title/colors/cursor/window/ReadKey), while adding terminal-native features that `System.Console` does not provide: atomic output, markup rendering, unified input events, and deterministic tests.
+It keeps a familiar Console-like surface while adding terminal-native features that `System.Console` does not provide: **atomic ANSI-safe output**, **markup/styling**, **unified input events**, **scopes for state restore**, and **deterministic testing**.
 
-## Why Terminal?
+> [!NOTE]
+> XenoAtom.Terminal is a terminal API, not a widget framework. It focuses on safe I/O, state/scopes, and input events; higher-level libraries can build screen buffers and widgets on top.
 
-`System.Console` is great for basic apps, but TUIs and concurrent CLIs quickly run into limitations:
+## Contents
 
-- Output from multiple threads can interleave and corrupt ANSI sequences.
-- No events for mouse or resize; input is key/text only.
-- Input is split across `ReadKey`, `ReadLine`, `CancelKeyPress`, and ad-hoc polling patterns.
-- “Do something, then restore state” patterns are easy to get wrong.
-- Tests are hard because `System.Console` is global and environment-dependent.
-
-XenoAtom.Terminal addresses these with:
-
-- **Serialized output** (`Terminal.Out`/`Terminal.Error`/`Terminal.Writer`) + **atomic writes** (`WriteAtomic`).
-- A **single unified input event stream** (`ReadEventsAsync`) and **Console-like** `ReadKey`/`KeyAvailable` built on it.
-- **Scopes** that reliably restore terminal state.
-- An **in-memory backend** for deterministic tests.
-
-## Terminal vs System.Console
-
-| Feature | `System.Console` | `XenoAtom.Terminal` |
-|---|---:|---:|
-| Thread-safe “don’t interleave” writes | ❌ | ✅ `Terminal.Out` / `Terminal.WriteAtomic(...)` |
-| Atomic multi-step output (ANSI-safe) | ❌ | ✅ `WriteAtomic` / `WriteErrorAtomic` |
-| Markup rendering | ❌ | ✅ `Terminal.WriteMarkup(...)` (via `XenoAtom.Ansi`) |
-| Unified input events (key/mouse/resize/text/signal) | ❌ | ✅ `Terminal.ReadEventsAsync(...)` |
-| Async input with cancellation | limited | ✅ `ReadEventsAsync` / `ReadKeyAsync` / `ReadLineAsync` |
-| Easy “do X then restore” | manual | ✅ scopes (`UseAlternateScreen`, `HideCursor`, `UseRawMode`, …) |
-| Deterministic tests | hard | ✅ `InMemoryTerminalBackend` |
-| Console-like surface (Title/Colors/Cursor/Window/ReadKey) | ✅ | ✅ |
-
-## CI and redirected output
-
-When output is redirected, many hosts disable colors even if the log viewer supports ANSI.
-XenoAtom.Terminal detects several common CI environments (GitHub Actions, Azure Pipelines, GitLab, Bitbucket, …) and keeps ANSI colors enabled while still treating the output as redirected (so cursor/screen control stays off by default).
+- Getting started
+- Capabilities and backends
+- Output (plain, ANSI, markup, atomic writes)
+- Console-like state (title, colors/style, cursor/window)
+- Input (unified events, ReadKey, signals)
+- ReadLine editor (detailed)
+- Scopes (restore-on-dispose)
+- Testing (in-memory backend)
+- Samples
 
 ## Getting started
+
+Add the NuGet package, then write normally:
 
 ```csharp
 using XenoAtom.Terminal;
@@ -47,58 +29,151 @@ Terminal.WriteLine("Hello");
 Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 ```
 
+### Initialization
+
+The first use initializes the global instance lazily. You can also initialize explicitly:
+
+```csharp
+Terminal.Initialize(options: new TerminalOptions
+{
+    PreferUtf8Output = true,
+    Prefer7BitC1 = true,
+    ForceAnsi = false,
+    StrictMode = false,
+});
+```
+
+For deterministic tests or headless scenarios, pass a backend:
+
+```csharp
+using XenoAtom.Terminal.Backends;
+
+var backend = new InMemoryTerminalBackend();
+Terminal.Initialize(backend);
+```
+
+## Capabilities and backends
+
+XenoAtom.Terminal selects a backend automatically (Windows Console on Windows, Unix on Linux/macOS, and a virtual CI backend when output is redirected but ANSI is supported).
+
+Inspect the detected capabilities:
+
+```csharp
+Terminal.WriteLine($"Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.Capabilities.ColorLevel}, Mouse={Terminal.Capabilities.SupportsMouse}");
+```
+
+> [!NOTE]
+> Terminal state is “best effort”. Terminal capabilities vary by host (terminal emulator, CI log, SSH, etc.).
+
 ## Output
 
-### Plain text and ANSI-aware output
+### Plain text output (serialized)
 
-- Use `Terminal.Out` / `Terminal.Error` for serialized text output.
-- Use `Terminal.Writer` for ANSI-aware output (built on `XenoAtom.Ansi`).
+Use `Terminal.Out` and `Terminal.Error` to write plain text safely from multiple threads (writes are serialized):
 
-### Atomic output
+```csharp
+Terminal.Out.WriteLine("stdout");
+Terminal.Error.WriteLine("stderr");
+```
 
-Use atomic writes to ensure multi-step output stays together (especially important for ANSI style transitions):
+### ANSI-aware output (`AnsiWriter`)
+
+Use `Terminal.Writer` (or `Terminal.WriteAtomic(Action<AnsiWriter>)`) for ANSI/VT styling and cursor operations:
 
 ```csharp
 Terminal.WriteAtomic(w =>
 {
-    w.Foreground(XenoAtom.Ansi.AnsiColor.Red).Write("Error: ").ResetStyle();
-    w.WriteLine("something went wrong");
+    w.Foreground(ConsoleColor.DarkGray);
+    w.Write("[");
+    w.Write(DateTimeOffset.UtcNow.ToString("HH:mm:ss.fff"));
+    w.Write("] ");
+    w.ResetStyle();
+    w.Write("message\n");
 });
+```
+
+For fluent usage, `Terminal.T` is a convenience alias for the instance:
+
+```csharp
+Terminal.T.Foreground(ConsoleColor.Green).Write("ok").ResetStyle().WriteLine();
 ```
 
 ### Markup
 
-Markup is provided by `XenoAtom.Ansi.AnsiMarkup`:
+Markup is provided by `XenoAtom.Ansi.AnsiMarkup` and rendered to ANSI:
 
 ```csharp
 Terminal.WriteMarkup("[bold yellow]Warning:[/] something happened");
 ```
 
-### Console-like properties
+### Atomic output
+
+Atomic writes guarantee that a multi-step output sequence is not interleaved with other concurrent output (important for styling transitions and cursor ops):
+
+```csharp
+Terminal.WriteAtomic(w =>
+{
+    w.Foreground(ConsoleColor.Red).Write("Error: ").ResetStyle();
+    w.Write("something went wrong\n");
+});
+```
+
+### Links (OSC 8)
+
+When supported, you can emit hyperlinks:
+
+```csharp
+Terminal.WriteAtomic(w =>
+{
+    w.BeginLink("https://github.com/XenoAtom/XenoAtom.Terminal");
+    w.Write("XenoAtom.Terminal");
+    w.EndLink();
+    w.Write("\n");
+});
+```
+
+## Console-like state (title, style, cursor, window)
+
+### Title
 
 ```csharp
 Terminal.Title = "My App";
-Terminal.ForegroundColor = XenoAtom.Ansi.AnsiColor.Basic16(2); // or: (XenoAtom.Ansi.AnsiColor)ConsoleColor.Green
-Terminal.BackgroundColor = XenoAtom.Ansi.AnsiColor.Default;
-Terminal.Decorations = XenoAtom.Ansi.AnsiDecorations.Bold;
-Terminal.Beep();
 ```
 
-### Cursor and window
+### Style and colors (`AnsiStyle` / `AnsiColor`)
+
+Terminal exposes style via `XenoAtom.Ansi` types. `AnsiColor` supports default colors and has an implicit converter from `ConsoleColor`.
 
 ```csharp
-Terminal.SetCursorPosition(0, 0);
-Terminal.WriteLine("Top-left");
+Terminal.ForegroundColor = (XenoAtom.Ansi.AnsiColor)ConsoleColor.Green;
+Terminal.BackgroundColor = XenoAtom.Ansi.AnsiColor.Default;
+Terminal.Decorations = XenoAtom.Ansi.AnsiDecorations.Bold;
+```
 
+> [!NOTE]
+> These properties reflect style changes made via Terminal APIs. If raw ANSI is written outside of Terminal APIs, the tracked state can become inaccurate.
+
+### Cursor
+
+```csharp
 Terminal.Cursor.Visible = false;
-using var _restore = Terminal.UseCursorPosition(); // restores on dispose (best effort)
-Terminal.CursorLeft = 10;
-Terminal.CursorTop = 5;
-Terminal.WriteLine("Here");
+Terminal.Cursor.Position = new TerminalPosition(0, 0);
+Terminal.Cursor.Style = XenoAtom.Ansi.AnsiCursorStyle.Bar;
+Terminal.WriteLine("Top-left");
 Terminal.Cursor.Visible = true;
 ```
 
-Window/buffer access mirrors `System.Console`:
+Best-effort cursor restore:
+
+```csharp
+using var _pos = Terminal.UseCursorPosition();
+Terminal.SetCursorPosition(10, 5);
+Terminal.WriteLine("Temporarily moved");
+```
+
+### Window and buffer sizes
+
+The API mirrors `System.Console` where possible:
 
 - `Terminal.WindowWidth`, `Terminal.WindowHeight`
 - `Terminal.BufferWidth`, `Terminal.BufferHeight`
@@ -106,25 +181,41 @@ Window/buffer access mirrors `System.Console`:
 
 ## Input
 
-XenoAtom.Terminal uses a single event stream for input. This is the preferred API for TUIs.
+XenoAtom.Terminal uses a single unified event stream for input. This is the preferred API for TUIs.
 
 ```csharp
-Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true });
+Terminal.StartInput(new TerminalInputOptions
+{
+    EnableResizeEvents = true,
+    EnableMouseEvents = true,
+    MouseMode = TerminalMouseMode.Drag,
+});
+
 await foreach (var ev in Terminal.ReadEventsAsync())
 {
     if (ev is TerminalKeyEvent { Key: TerminalKey.Escape })
         break;
 }
+
 await Terminal.StopInputAsync();
 ```
 
-### Important
+### Important: do not mix Console input APIs
 
-When the input loop is running, consumers MUST NOT call `Console.ReadKey`, `Console.ReadLine`, `Console.KeyAvailable`, etc., as they will steal input from the same buffer.
+When the input loop is running, do not call `Console.ReadKey`, `Console.ReadLine`, `Console.KeyAvailable`, etc. They read from the same underlying stream and will steal input.
 
-### ReadKey / KeyAvailable
+### Event types
 
-`Terminal.ReadKey(...)` is a Console-like API built on the same input stream:
+The default input stream can publish:
+
+- `TerminalKeyEvent` (non-text keys and some control sequences)
+- `TerminalTextEvent` (text input)
+- `TerminalPasteEvent` (bracketed paste text when enabled/supported)
+- `TerminalMouseEvent` (mouse move/down/up/drag/wheel)
+- `TerminalResizeEvent` (terminal resized)
+- `TerminalSignalEvent` (interrupt/break)
+
+### ReadKey / KeyAvailable (Console-like)
 
 ```csharp
 Terminal.StartInput();
@@ -138,74 +229,135 @@ if (Terminal.KeyAvailable)
 ### Ctrl+C behavior
 
 By default, Ctrl+C/Ctrl+Break are published as `TerminalSignalEvent` (and can interrupt reads).
-
 If you want Console-like behavior where Ctrl+C is treated as input (best effort):
 
 ```csharp
 Terminal.TreatControlCAsInput = true;
 ```
 
-## ReadLine
+## ReadLine editor (detailed)
 
 `Terminal.ReadLineAsync(...)` is built on the terminal event stream (so apps don't need `Console.ReadLine`).
 
-When supported (interactive output + cursor positioning), it provides an in-terminal line editor by default:
+When supported (interactive output + cursor positioning), it provides an in-terminal editor; otherwise it falls back to a simple non-editing mode.
 
-- Left/Right cursor movement, mid-line insert/delete
-- Up/Down history navigation
-- Shift+Left/Right selection, Ctrl+Shift+Left/Right selection by word (when modifiers are available)
-- Ctrl+Left/Right (or Alt+Left/Right) word movement (when modifiers are available)
-- Ctrl+Backspace/Ctrl+Delete word delete (when modifiers are available)
-- Common Ctrl bindings (e.g. Ctrl+A/E, Ctrl+K/U, Ctrl+X/V, Ctrl+C to cancel)
-- Optional fixed-width view with ellipsis when the text does not fit
+### Basic usage
 
 ```csharp
 Terminal.StartInput();
-var name = await Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = true });
+var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = true });
 ```
 
-You can customize behavior via `TerminalReadLineOptions`:
+### Prompt (plain or markup)
+
+Use `Prompt` for plain text prompts, or `PromptMarkup` for styled prompts:
 
 ```csharp
-var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions
+var counter = 1;
+var options = new TerminalReadLineOptions
 {
-    PromptMarkup = () => "[gray]1[/] [darkgray]>[/] ",
-    ViewWidth = 40,
-    EmitNewLineOnAccept = true,
+    Echo = true,
+    PromptMarkup = () => $"[gray]{counter++}[/] [darkgray]>[/] ",
+};
+
+var line = await Terminal.ReadLineAsync(options);
+```
+
+### History (scoped, not global)
+
+History lives on `TerminalReadLineOptions` so you can scope/share it explicitly:
+
+```csharp
+Terminal.StartInput();
+var options = new TerminalReadLineOptions { Echo = true, PromptMarkup = () => "[darkgray]>[/] " };
+
+while (true)
+{
+    var line = await Terminal.ReadLineAsync(options);
+    if (line is null || line.Length == 0) break;
+}
+```
+
+### Completion (Tab)
+
+```csharp
+var options = new TerminalReadLineOptions
+{
+    Echo = true,
     CompletionHandler = static (text, cursor, selectionStart, selectionLength) => new TerminalReadLineCompletion
     {
         Handled = true,
         InsertText = "completion",
     },
-});
+};
 ```
 
-Use `Prompt` for plain text prompts, or `PromptMarkup` to render a styled prompt (markup) in the interactive editor.
+### Extending the editor (custom key/mouse handlers)
 
-History is stored on the `TerminalReadLineOptions` instance (not globally on the terminal). Reuse the same options object to keep history:
+Use `KeyHandler` and `MouseHandler` to react to keys (including `Esc`, `F1`..`F12`, etc.) or mouse input.
+Handlers receive a `TerminalReadLineController` that can edit the line:
 
 ```csharp
-Terminal.StartInput();
-var options = new TerminalReadLineOptions { PromptMarkup = () => "[darkgray]>[/] ", Echo = true };
-while (true)
+var options = new TerminalReadLineOptions
 {
-    var line = await Terminal.ReadLineAsync(options);
-    if (line is null || line.Length == 0) break;
-    Terminal.WriteLine($"You typed: {line}");
-}
+    Echo = true,
+    KeyHandler = static (ctl, key) =>
+    {
+        if (key.Key == TerminalKey.Escape) ctl.Cancel();
+        if (key.Key == TerminalKey.F2) ctl.Insert(" --flag".AsSpan());
+        if (key.Key == TerminalKey.F3) ctl.SetCursorIndex(0);
+        if (key.Key == TerminalKey.F4) ctl.Select(0, ctl.Length);
+    },
+};
 ```
+
+### Mouse editing (optional)
+
+Mouse-based cursor positioning and selection is opt-in:
+
+```csharp
+Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Drag });
+var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions { EnableMouseEditing = true });
+```
+
+### Rendering and styling the editable line
+
+Use `MarkupRenderer` to control how the visible slice of the line is rendered (e.g. highlighting matches or selection):
+
+```csharp
+var options = new TerminalReadLineOptions
+{
+    Echo = true,
+    MarkupRenderer = static (text, cursor, viewStart, viewLength, selectionStart, selectionLength)
+        => XenoAtom.Ansi.AnsiMarkup.Escape(text.Slice(viewStart, viewLength)),
+};
+```
+
+### Fixed-width view, ellipsis, max length
+
+For constrained UI regions, use:
+
+- `ViewWidth` (cells) to restrict the visible editing region
+- `ShowEllipsis` / `Ellipsis` to indicate truncation
+- `MaxLength` to cap input length (best effort)
+
+### Cancellation and newline emission
+
+- Ctrl+C cancels the editor by default (throws `OperationCanceledException`).
+- Set `EmitNewLineOnAccept = false` to accept without writing a newline.
 
 If `TerminalOptions.ImplicitStartInput` is disabled, callers must start input explicitly (e.g. `Terminal.StartInput()`) before calling `ReadLineAsync`.
 
 ## Scopes
 
-Scoped operations restore state reliably when disposed:
+Scoped operations restore terminal state reliably when disposed (best effort):
 
 ```csharp
 using var _title = Terminal.UseTitle("My App");
 using var _alt = Terminal.UseAlternateScreen();
 using var _cursor = Terminal.HideCursor();
 using var _raw = Terminal.UseRawMode(TerminalRawModeKind.CBreak);
+using var _paste = Terminal.EnableBracketedPaste();
 
 Terminal.Clear();
 Terminal.WriteLine("Hello from the alternate screen");
@@ -213,22 +365,25 @@ Terminal.WriteLine("Hello from the alternate screen");
 
 ## Testing
 
-Use the in-memory backend for deterministic tests:
+Use the in-memory backend for deterministic tests (captures output and lets you inject events):
 
 ```csharp
 using XenoAtom.Terminal.Backends;
 
 var backend = new InMemoryTerminalBackend();
 Terminal.Initialize(backend);
+Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
 
-Terminal.WriteMarkup("[red]test[/]");
+var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false }).AsTask();
+backend.PushEvent(new TerminalTextEvent { Text = "abc" });
 backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
 
-var output = backend.GetOutText();
+var line = await task;
+var outText = backend.GetOutText();
 ```
 
 ## Samples
 
-- `samples/HelloTerminal` demonstrates input events and common terminal scopes.
-- `samples/HelloReadLine` demonstrates the interactive `ReadLine` editor (history, selection, completion, and markup rendering).
-- `samples/LogTerminal` prints a colored pseudo log and is used in CI to validate ANSI rendering in logs.
+- `samples/HelloTerminal` prints all input events and demonstrates scopes.
+- `samples/HelloReadLine` demonstrates the interactive editor (prompt markup, history, selection, mouse, completion, custom handlers).
+- `samples/LogTerminal` prints colored pseudo log lines and is run in CI to validate ANSI output.

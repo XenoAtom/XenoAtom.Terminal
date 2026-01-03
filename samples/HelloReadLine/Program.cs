@@ -30,7 +30,7 @@ public static class Program
 
         ShowHelp();
 
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = true });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, EnableResizeEvents = true, MouseMode = TerminalMouseMode.Drag });
 
         var promptNumber = 1;
         var options = new TerminalReadLineOptions
@@ -43,6 +43,7 @@ public static class Program
             EnableHistory = true,
             AddToHistory = true,
             EnableBracketedPaste = true,
+            EnableMouseEditing = true,
             KeyHandler = HandleKey,
             CompletionHandler = Complete,
             MarkupRenderer = RenderMarkup,
@@ -106,19 +107,14 @@ public static class Program
         }
     }
 
-    private static TerminalReadLineKeyHandling HandleKey(TerminalKeyEvent key, ReadOnlySpan<char> text, int cursorIndex, int selectionStart, int selectionLength)
+    private static void HandleKey(TerminalReadLineController controller, TerminalKeyEvent key)
     {
-        // Ctrl+O inserts a timestamp (example of a custom insertion callback).
+        // Ctrl+O inserts a timestamp (example of a custom key binding).
         if (key.Key == TerminalKey.Unknown && key.Char == '\x0F')
         {
-            return new TerminalReadLineKeyHandling
-            {
-                Handled = true,
-                InsertText = DateTimeOffset.Now.ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture) + " ",
-            };
+            controller.Insert((DateTimeOffset.Now.ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture) + " ").AsSpan());
+            return;
         }
-
-        return default;
     }
 
     private static TerminalReadLineCompletion Complete(ReadOnlySpan<char> text, int cursorIndex, int selectionStart, int selectionLength)
@@ -413,10 +409,11 @@ public static class Program
                              - [cyan]Up/Down[/] history (reusing the same options instance)
                              - [cyan]Shift+Left/Right[/] selection (and [cyan]Ctrl+Shift+Left/Right[/] by word when available)
                              - [cyan]Ctrl+Left/Right[/] word movement (often [cyan]Alt+Left/Right[/] on some terminals)
-                             - [cyan]Ctrl+Backspace[/] / [cyan]Ctrl+Delete[/] word delete (when available)
-                             - [cyan]Tab[/] completion for slash commands (e.g. type [gray]/he[/] then Tab)
-                             - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
-                             - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]
+                              - [cyan]Ctrl+Backspace[/] / [cyan]Ctrl+Delete[/] word delete (when available)
+                              - [cyan]Tab[/] completion for slash commands (e.g. type [gray]/he[/] then Tab)
+                              - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
+                              - [cyan]Mouse click/drag[/] sets cursor and selection (when supported)
+                              - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]
 
                              [bold]Commands[/]
                              - [cyan]/help[/]  show help
