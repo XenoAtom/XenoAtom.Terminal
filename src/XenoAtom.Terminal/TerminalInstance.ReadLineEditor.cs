@@ -510,11 +510,6 @@ public sealed partial class TerminalInstance
 
         bool HandleEditorMouse(TerminalMouseEvent mouse)
         {
-            if (mouse.Y != origin.Row)
-            {
-                return false;
-            }
-
             if (mouse.Button != TerminalMouseButton.Left && mouse.Button != TerminalMouseButton.None)
             {
                 return false;
@@ -550,12 +545,20 @@ public sealed partial class TerminalInstance
             switch (mouse.Kind)
             {
                 case TerminalMouseKind.Down when mouse.Button == TerminalMouseButton.Left:
+                    if (mouse.Y != origin.Row)
+                    {
+                        return false;
+                    }
                     mouseSelecting = true;
                     suppressMouseUpSelectionUpdate = false;
                     controller.BeginSelection(index);
                     return true;
 
                 case TerminalMouseKind.DoubleClick when mouse.Button == TerminalMouseButton.Left:
+                    if (mouse.Y != origin.Row)
+                    {
+                        return false;
+                    }
                     mouseSelecting = true;
                     suppressMouseUpSelectionUpdate = true;
                     SelectWord(lineSpan, index);
