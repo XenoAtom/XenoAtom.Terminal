@@ -394,6 +394,18 @@ For constrained UI regions, use:
 - `ShowEllipsis` / `Ellipsis` to indicate truncation
 - `MaxLength` to cap input length (best effort)
 
+### Text utilities (cell width, word boundaries)
+
+For higher-level controls (layout, clipping, hit testing), use `TerminalTextUtility`:
+
+```csharp
+var cells = TerminalTextUtility.GetWidth("A😃中".AsSpan());
+TerminalTextUtility.TryGetIndexAtCell("hello world".AsSpan(), cellOffset: 6, out var index);
+
+var wordStart = TerminalTextUtility.GetWordStart("hello_world".AsSpan(), index: 8);
+var wordEnd = TerminalTextUtility.GetWordEnd("hello_world".AsSpan(), index: 8);
+```
+
 ### Cancellation and newline emission
 
 - Ctrl+C cancels the editor by default (throws `OperationCanceledException`).

@@ -218,8 +218,8 @@ public static class Program
         var selA = selectionLength > 0 ? Math.Clamp(selectionStart, viewStart, viewEnd) : viewEnd;
         var selB = selectionLength > 0 ? Math.Clamp(selectionStart + selectionLength, viewStart, viewEnd) : viewEnd;
 
-        var wordA = GetWordStart(text, cursorIndex);
-        var wordB = GetWordEnd(text, cursorIndex);
+        var wordA = TerminalTextUtility.GetWordStart(text, cursorIndex);
+        var wordB = TerminalTextUtility.GetWordEnd(text, cursorIndex);
         var hasWord = wordA < wordB;
         if (hasWord)
         {
@@ -325,33 +325,33 @@ public static class Program
         length = 0;
         tag = string.Empty;
 
-        if (!IsWordStart(fullText, globalIndex))
+        if (!TerminalTextUtility.IsWordStart(fullText, globalIndex))
         {
             return false;
         }
 
-        if (remaining.StartsWith("error", StringComparison.OrdinalIgnoreCase) && IsWordEnd(fullText, globalIndex + 5))
+        if (remaining.StartsWith("error", StringComparison.OrdinalIgnoreCase) && TerminalTextUtility.IsWordEnd(fullText, globalIndex + 5))
         {
             length = 5;
             tag = "[bold red]";
             return true;
         }
 
-        if (remaining.StartsWith("warning", StringComparison.OrdinalIgnoreCase) && IsWordEnd(fullText, globalIndex + 7))
+        if (remaining.StartsWith("warning", StringComparison.OrdinalIgnoreCase) && TerminalTextUtility.IsWordEnd(fullText, globalIndex + 7))
         {
             length = 7;
             tag = "[bold yellow]";
             return true;
         }
 
-        if (remaining.StartsWith("warn", StringComparison.OrdinalIgnoreCase) && IsWordEnd(fullText, globalIndex + 4))
+        if (remaining.StartsWith("warn", StringComparison.OrdinalIgnoreCase) && TerminalTextUtility.IsWordEnd(fullText, globalIndex + 4))
         {
             length = 4;
             tag = "[bold yellow]";
             return true;
         }
 
-        if (remaining.StartsWith("info", StringComparison.OrdinalIgnoreCase) && IsWordEnd(fullText, globalIndex + 4))
+        if (remaining.StartsWith("info", StringComparison.OrdinalIgnoreCase) && TerminalTextUtility.IsWordEnd(fullText, globalIndex + 4))
         {
             length = 4;
             tag = "[bold green]";
@@ -359,84 +359,6 @@ public static class Program
         }
 
         return false;
-    }
-
-    private static bool IsWordStart(ReadOnlySpan<char> text, int index)
-    {
-        if ((uint)index >= (uint)text.Length)
-        {
-            return false;
-        }
-
-        if (!IsWordChar(text[index]))
-        {
-            return false;
-        }
-
-        if (index == 0)
-        {
-            return true;
-        }
-
-        return !IsWordChar(text[index - 1]);
-    }
-
-    private static bool IsWordEnd(ReadOnlySpan<char> text, int indexExclusive)
-    {
-        if ((uint)indexExclusive > (uint)text.Length)
-        {
-            return false;
-        }
-
-        if (indexExclusive == text.Length)
-        {
-            return true;
-        }
-
-        return !IsWordChar(text[indexExclusive]);
-    }
-
-    private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_';
-
-    private static int GetWordStart(ReadOnlySpan<char> text, int index)
-    {
-        index = Math.Clamp(index, 0, text.Length);
-        if (index == text.Length || !IsWordChar(text[index]))
-        {
-            if (index > 0 && IsWordChar(text[index - 1]))
-            {
-                index--;
-            }
-            else
-            {
-                return index;
-            }
-        }
-
-        var i = index;
-        while (i > 0 && IsWordChar(text[i - 1]))
-        {
-            i--;
-        }
-
-        return i;
-    }
-
-    private static int GetWordEnd(ReadOnlySpan<char> text, int index)
-    {
-        index = Math.Clamp(index, 0, text.Length);
-        if (index < text.Length && !IsWordChar(text[index]))
-        {
-            return index;
-        }
-
-        var i = index;
-        while (i < text.Length && IsWordChar(text[i]))
-        {
-            i++;
-        }
-
-        return i;
     }
 
     private static void AppendEscaped(StringBuilder sb, ReadOnlySpan<char> text)

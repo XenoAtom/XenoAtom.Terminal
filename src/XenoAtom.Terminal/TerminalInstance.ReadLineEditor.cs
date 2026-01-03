@@ -4,7 +4,6 @@
 
 using System.IO;
 using System.Runtime.InteropServices;
-using XenoAtom.Terminal.Internal;
 
 namespace XenoAtom.Terminal;
 
@@ -186,7 +185,7 @@ public sealed partial class TerminalInstance
             promptMarkup = string.Empty;
         }
 
-        var promptCells = !string.IsNullOrEmpty(promptMarkup) ? MeasureStyledWidth(promptMarkup) : TerminalCellWidth.GetWidth(promptPlain.AsSpan());
+        var promptCells = !string.IsNullOrEmpty(promptMarkup) ? MeasureStyledWidth(promptMarkup) : TerminalTextUtility.GetWidth(promptPlain.AsSpan());
 
         var buffer = new List<char>(64);
         var controller = new TerminalReadLineController(buffer, options.MaxLength);
@@ -459,11 +458,11 @@ public sealed partial class TerminalInstance
 
         void ComputeView(ReadOnlySpan<char> lineSpan, out int contentStartCell, out int contentCells, out int viewStartIndex, out int viewEndIndex, out bool left, out bool right, out int ellipsisCells)
         {
-            var totalCells = TerminalCellWidth.GetWidth(lineSpan);
-            var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..controller.CursorIndex]);
+            var totalCells = TerminalTextUtility.GetWidth(lineSpan);
+            var cursorCells = TerminalTextUtility.GetWidth(lineSpan[..controller.CursorIndex]);
 
             var showEllipsis = options.ShowEllipsis && !string.IsNullOrEmpty(options.Ellipsis);
-            ellipsisCells = showEllipsis ? TerminalCellWidth.GetWidth(options.Ellipsis.AsSpan()) : 0;
+            ellipsisCells = showEllipsis ? TerminalTextUtility.GetWidth(options.Ellipsis.AsSpan()) : 0;
 
             contentStartCell = 0;
             contentCells = availableCells;
@@ -499,8 +498,8 @@ public sealed partial class TerminalInstance
                 }
             }
 
-            TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell, out viewStartIndex);
-            TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out viewEndIndex);
+            TerminalTextUtility.TryGetIndexAtCell(lineSpan, contentStartCell, out viewStartIndex);
+            TerminalTextUtility.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out viewEndIndex);
 
             viewStartIndex = Math.Clamp(viewStartIndex, 0, lineSpan.Length);
             viewEndIndex = Math.Clamp(viewEndIndex, viewStartIndex, lineSpan.Length);
@@ -544,7 +543,7 @@ public sealed partial class TerminalInstance
             {
                 var inViewCell = mouse.X - textStart;
                 var globalCell = contentStartCell + inViewCell;
-                TerminalCellWidth.TryGetIndexAtCell(lineSpan, globalCell, out index);
+                TerminalTextUtility.TryGetIndexAtCell(lineSpan, globalCell, out index);
                 index = Math.Clamp(index, 0, lineSpan.Length);
             }
 
@@ -598,11 +597,11 @@ public sealed partial class TerminalInstance
                 var probe = Math.Clamp(clickIndex, 0, text.Length);
                 if (probe == text.Length && probe > 0)
                 {
-                    probe = TerminalCellWidth.GetPreviousRuneIndex(text, probe);
+                    probe = TerminalTextUtility.GetPreviousRuneIndex(text, probe);
                 }
                 else if (probe < text.Length && char.IsWhiteSpace(text[probe]) && probe > 0)
                 {
-                    probe = TerminalCellWidth.GetPreviousRuneIndex(text, probe);
+                    probe = TerminalTextUtility.GetPreviousRuneIndex(text, probe);
                 }
 
                 probe = Math.Clamp(probe, 0, Math.Max(0, text.Length - 1));
@@ -611,7 +610,7 @@ public sealed partial class TerminalInstance
                 var start = probe;
                 while (start > 0)
                 {
-                    var prev = TerminalCellWidth.GetPreviousRuneIndex(text, start);
+                    var prev = TerminalTextUtility.GetPreviousRuneIndex(text, start);
                     if (char.IsWhiteSpace(text[prev]) != isWhitespace)
                     {
                         break;
@@ -619,14 +618,14 @@ public sealed partial class TerminalInstance
                     start = prev;
                 }
 
-                var endExclusive = TerminalCellWidth.GetNextRuneIndex(text, probe);
+                var endExclusive = TerminalTextUtility.GetNextRuneIndex(text, probe);
                 while (endExclusive < text.Length)
                 {
                     if (char.IsWhiteSpace(text[endExclusive]) != isWhitespace)
                     {
                         break;
                     }
-                    endExclusive = TerminalCellWidth.GetNextRuneIndex(text, endExclusive);
+                    endExclusive = TerminalTextUtility.GetNextRuneIndex(text, endExclusive);
                 }
 
                 controller.Select(start, endExclusive);
@@ -732,8 +731,8 @@ public sealed partial class TerminalInstance
                 if (shift)
                 {
                     var newIndex = key.Key == TerminalKey.Left
-                        ? TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
-                        : TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
+                        ? TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
+                        : TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
                     controller.SetCursorIndex(newIndex, extendSelection: true);
                     return true;
                 }
@@ -742,10 +741,10 @@ public sealed partial class TerminalInstance
             switch (key.Key)
             {
                 case TerminalKey.Left:
-                    controller.SetCursorIndex(TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalKey.Right:
-                    controller.SetCursorIndex(TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalKey.Home:
                     controller.SetCursorIndex(0, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
@@ -778,7 +777,7 @@ public sealed partial class TerminalInstance
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
                         var end = controller.CursorIndex;
-                        var prev = TerminalCellWidth.GetPreviousRuneIndex(span, end);
+                        var prev = TerminalTextUtility.GetPreviousRuneIndex(span, end);
                         controller.Remove(prev, end - prev);
                         controller.SetCursorIndex(prev, extendSelection: false);
                         ResetHistoryNavigation();
@@ -809,7 +808,7 @@ public sealed partial class TerminalInstance
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
                         var start = controller.CursorIndex;
-                        var next = TerminalCellWidth.GetNextRuneIndex(span, start);
+                        var next = TerminalTextUtility.GetNextRuneIndex(span, start);
                         controller.Remove(start, next - start);
                         ResetHistoryNavigation();
                         return true;
@@ -887,10 +886,10 @@ public sealed partial class TerminalInstance
                     controller.SetCursorIndex(buffer.Count, extendSelection: false);
                     return true;
                 case '\x02': // Ctrl+B
-                    controller.SetCursorIndex(TerminalCellWidth.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case '\x06': // Ctrl+F
-                    controller.SetCursorIndex(TerminalCellWidth.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case '\x10': // Ctrl+P
                     return options.EnableHistory && NavigateHistory(-1);
@@ -978,7 +977,7 @@ public sealed partial class TerminalInstance
             var i = index;
             while (i > 0)
             {
-                var prev = TerminalCellWidth.GetPreviousRuneIndex(text, i);
+                var prev = TerminalTextUtility.GetPreviousRuneIndex(text, i);
                 if (!char.IsWhiteSpace(text[prev]))
                 {
                     break;
@@ -988,7 +987,7 @@ public sealed partial class TerminalInstance
 
             while (i > 0)
             {
-                var prev = TerminalCellWidth.GetPreviousRuneIndex(text, i);
+                var prev = TerminalTextUtility.GetPreviousRuneIndex(text, i);
                 if (char.IsWhiteSpace(text[prev]))
                 {
                     break;
@@ -1009,7 +1008,7 @@ public sealed partial class TerminalInstance
             var i = index;
             while (i < text.Length)
             {
-                var next = TerminalCellWidth.GetNextRuneIndex(text, i);
+                var next = TerminalTextUtility.GetNextRuneIndex(text, i);
                 if (!char.IsWhiteSpace(text[i]))
                 {
                     break;
@@ -1019,7 +1018,7 @@ public sealed partial class TerminalInstance
 
             while (i < text.Length)
             {
-                var next = TerminalCellWidth.GetNextRuneIndex(text, i);
+                var next = TerminalTextUtility.GetNextRuneIndex(text, i);
                 if (char.IsWhiteSpace(text[i]))
                 {
                     break;
@@ -1119,11 +1118,11 @@ public sealed partial class TerminalInstance
                     }
 
                     var lineSpan = CollectionsMarshal.AsSpan(buffer);
-                    var totalCells = TerminalCellWidth.GetWidth(lineSpan);
-                    var cursorCells = TerminalCellWidth.GetWidth(lineSpan[..controller.CursorIndex]);
+                    var totalCells = TerminalTextUtility.GetWidth(lineSpan);
+                    var cursorCells = TerminalTextUtility.GetWidth(lineSpan[..controller.CursorIndex]);
 
                     var showEllipsis = options.ShowEllipsis && !string.IsNullOrEmpty(options.Ellipsis);
-                    var ellipsisCells = showEllipsis ? TerminalCellWidth.GetWidth(options.Ellipsis.AsSpan()) : 0;
+                    var ellipsisCells = showEllipsis ? TerminalTextUtility.GetWidth(options.Ellipsis.AsSpan()) : 0;
 
                     var contentStartCell = 0;
                     var contentCells = availableCells;
@@ -1159,8 +1158,8 @@ public sealed partial class TerminalInstance
                         }
                     }
 
-                    TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell, out var viewStartIndex);
-                    TerminalCellWidth.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out var viewEndIndex);
+                    TerminalTextUtility.TryGetIndexAtCell(lineSpan, contentStartCell, out var viewStartIndex);
+                    TerminalTextUtility.TryGetIndexAtCell(lineSpan, contentStartCell + contentCells, out var viewEndIndex);
 
                     viewStartIndex = Math.Clamp(viewStartIndex, 0, lineSpan.Length);
                     viewEndIndex = Math.Clamp(viewEndIndex, viewStartIndex, lineSpan.Length);
