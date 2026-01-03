@@ -41,6 +41,10 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - In-memory backend for deterministic tests (capture output + inject events)
 - **Cross-platform + AOT**: Windows Console + Unix (Linux/macOS), `net10.0`+ and NativeAOT-friendly design
 
+Screenshot of the interactive sample HelloReadLine demo:
+
+![Interactive ReadLine Demo](https://raw.githubusercontent.com/XenoAtom/XenoAtom.Terminal/main/doc/XenoAtom.Terminal-readline-screenshot.png)
+
 > [!NOTE]
 > XenoAtom.Terminal is a terminal API, not a widget/UI framework.
 > It provides safe I/O, terminal state/scopes, and input events; higher-level libraries can build screen buffers, widgets, and layouts on top.
