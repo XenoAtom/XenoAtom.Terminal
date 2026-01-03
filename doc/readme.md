@@ -98,7 +98,7 @@ Terminal.WriteLine($"Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.C
 ```
 
 > [!NOTE]
-> Terminal state is “best effort”. Terminal capabilities vary by host (terminal emulator, CI log, SSH, etc.).
+> Terminal capabilities vary by host (terminal emulator, CI log, SSH, etc.). Some APIs are best-effort or capability-dependent; check the API/XML documentation for per-member details.
 
 ## Output
 
@@ -198,7 +198,7 @@ Terminal.WriteLine("Top-left");
 Terminal.Cursor.Visible = true;
 ```
 
-Best-effort cursor restore:
+Scoped cursor restore:
 
 ```csharp
 using var _pos = Terminal.UseCursorPosition();
@@ -216,7 +216,7 @@ The API mirrors `System.Console` where possible:
 
 ### Clipboard
 
-Terminal provides best-effort clipboard access via `Terminal.Clipboard`:
+Terminal provides clipboard access via `Terminal.Clipboard`:
 
 ```csharp
 Terminal.Clipboard.Text = "Hello from XenoAtom.Terminal";
@@ -279,7 +279,7 @@ if (Terminal.KeyAvailable)
 ### Ctrl+C behavior
 
 By default, Ctrl+C/Ctrl+Break are published as `TerminalSignalEvent` (and can interrupt reads).
-If you want Console-like behavior where Ctrl+C is treated as input (best effort):
+If you want Console-like behavior where Ctrl+C is treated as input:
 
 ```csharp
 Terminal.TreatControlCAsInput = true;
@@ -379,7 +379,7 @@ Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMo
 var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions { EnableMouseEditing = true });
 ```
 
-`EnableMouseEditing` enables mouse reporting for the duration of the ReadLine call (best effort), but the input loop must still be started with mouse events enabled.
+`EnableMouseEditing` enables mouse reporting for the duration of the ReadLine call, but the input loop must still be started with mouse events enabled.
 
 #### Why mouse “does nothing” in terminals
 
@@ -408,7 +408,7 @@ For constrained UI regions, use:
 
 - `ViewWidth` (cells) to restrict the visible editing region
 - `ShowEllipsis` / `Ellipsis` to indicate truncation
-- `MaxLength` to cap input length (best effort)
+- `MaxLength` to cap input length
 
 ### Text utilities (cell width, word boundaries)
 
@@ -425,15 +425,15 @@ var wordEnd = TerminalTextUtility.GetWordEnd("hello_world".AsSpan(), index: 8);
 ### Cancellation and newline emission
 
 - Ctrl+C copies the current selection when present; otherwise it cancels the editor (throws `OperationCanceledException`).
-- Ctrl+X cuts the selection (or the whole line when nothing is selected) to the clipboard (best effort).
-- Ctrl+V pastes clipboard text (best effort).
+- Ctrl+X cuts the selection (or the whole line when nothing is selected) to the clipboard.
+- Ctrl+V pastes clipboard text.
 - Set `EmitNewLineOnAccept = false` to accept without writing a newline.
 
 If `TerminalOptions.ImplicitStartInput` is disabled, callers must start input explicitly (e.g. `Terminal.StartInput()`) before calling `ReadLineAsync`.
 
 ## Scopes
 
-Scoped operations restore terminal state reliably when disposed (best effort):
+Scoped operations restore terminal state reliably when disposed:
 
 ```csharp
 using var _title = Terminal.UseTitle("My App");
