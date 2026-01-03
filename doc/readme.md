@@ -78,6 +78,12 @@ Terminal.Initialize(options: new TerminalOptions
 });
 ```
 
+For deterministic cleanup (restoring input modes, stopping the input loop), open a session:
+
+```csharp
+using var session = Terminal.Open(options: new TerminalOptions { PreferUtf8Output = true });
+```
+
 For deterministic tests or headless scenarios, pass a backend:
 
 ```csharp

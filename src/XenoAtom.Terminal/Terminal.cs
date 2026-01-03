@@ -223,19 +223,43 @@ public static partial class Terminal
             var instance = new TerminalInstance();
             instance.Initialize(backend, options);
             Volatile.Write(ref _instance, instance);
-            HookProcessExit();
+            HookProcessLifetime();
             return instance;
         }
     }
 
-    private static void HookProcessExit()
+    /// <summary>
+    /// Opens a terminal session that will dispose the global instance when disposed.
+    /// </summary>
+    /// <remarks>
+    /// This is a convenience for apps that want deterministic cleanup without relying on process lifetime handlers.
+    /// </remarks>
+    public static TerminalSession Open(ITerminalBackend? backend = null, TerminalOptions? options = null, bool force = true)
+    {
+        var instance = Initialize(backend, options, force);
+        return new TerminalSession(instance);
+    }
+
+    /// <summary>
+    /// Disposes the global terminal instance (idempotent).
+    /// </summary>
+    public static void Close()
+    {
+        lock (InitLock)
+        {
+            _instance?.Dispose();
+            _instance = null;
+        }
+    }
+
+    private static void HookProcessLifetime()
     {
         if (Interlocked.Exchange(ref _processExitHooked, 1) != 0)
         {
             return;
         }
 
-        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        void Cleanup()
         {
             try
             {
@@ -245,7 +269,11 @@ public static partial class Terminal
             {
                 // Best-effort.
             }
-        };
+        }
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
+        AppDomain.CurrentDomain.UnhandledException += (_, _) => Cleanup();
+        TaskScheduler.UnobservedTaskException += (_, _) => Cleanup();
     }
 
     /// <summary>
@@ -256,11 +284,7 @@ public static partial class Terminal
     /// </remarks>
     internal static void ResetForTests()
     {
-        lock (InitLock)
-        {
-            _instance?.Dispose();
-            _instance = null;
-        }
+        Close();
     }
 
     /// <inheritdoc cref="TerminalInstance.Write(string)" />

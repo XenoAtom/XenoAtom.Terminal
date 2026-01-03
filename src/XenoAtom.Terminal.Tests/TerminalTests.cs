@@ -30,6 +30,18 @@ public class TerminalTests
     }
 
     [TestMethod]
+    public void OpenSession_DisposesGlobalInstance_OnDispose()
+    {
+        var backend = new InMemoryTerminalBackend();
+        using (Terminal.Open(backend, force: true))
+        {
+            Assert.IsTrue(Terminal.IsInitialized);
+        }
+
+        Assert.IsFalse(Terminal.IsInitialized);
+    }
+
+    [TestMethod]
     public void WriteMarkup_RendersAnsi_WhenEnabled()
     {
         var backend = new InMemoryTerminalBackend();
