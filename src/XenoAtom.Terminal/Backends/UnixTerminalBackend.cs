@@ -720,6 +720,12 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                     return NoOpScopeOrThrow();
                 }
 
+                var wasEnabled = (previous.c_lflag & LibC.MACOS_ECHO) != 0;
+                if (wasEnabled == enabled)
+                {
+                    return TerminalScope.Empty;
+                }
+
                 var desired = previous;
                 if (enabled) desired.c_lflag |= LibC.MACOS_ECHO;
                 else desired.c_lflag &= ~LibC.MACOS_ECHO;
@@ -733,7 +739,16 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                 {
                     lock (_termiosLock)
                     {
-                        LibC.tcsetattr_macos(LibC.STDIN_FILENO, LibC.TCSANOW, previous);
+                        // Only restore the ECHO flag to avoid undoing raw/cbreak mode set by the input loop.
+                        if (LibC.tcgetattr_macos(LibC.STDIN_FILENO, out var current) != 0)
+                        {
+                            return;
+                        }
+
+                        var restore = current;
+                        if (wasEnabled) restore.c_lflag |= LibC.MACOS_ECHO;
+                        else restore.c_lflag &= ~LibC.MACOS_ECHO;
+                        LibC.tcsetattr_macos(LibC.STDIN_FILENO, LibC.TCSANOW, restore);
                     }
                 });
             }
@@ -741,6 +756,12 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             if (LibC.tcgetattr_linux(LibC.STDIN_FILENO, out var previousLinux) != 0)
             {
                 return NoOpScopeOrThrow();
+            }
+
+            var wasEnabledLinux = (previousLinux.c_lflag & LibC.LINUX_ECHO) != 0;
+            if (wasEnabledLinux == enabled)
+            {
+                return TerminalScope.Empty;
             }
 
             var desiredLinux = previousLinux;
@@ -756,7 +777,16 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             {
                 lock (_termiosLock)
                 {
-                    LibC.tcsetattr_linux(LibC.STDIN_FILENO, LibC.TCSANOW, previousLinux);
+                    // Only restore the ECHO flag to avoid undoing raw/cbreak mode set by the input loop.
+                    if (LibC.tcgetattr_linux(LibC.STDIN_FILENO, out var currentLinux) != 0)
+                    {
+                        return;
+                    }
+
+                    var restoreLinux = currentLinux;
+                    if (wasEnabledLinux) restoreLinux.c_lflag |= LibC.LINUX_ECHO;
+                    else restoreLinux.c_lflag &= ~LibC.LINUX_ECHO;
+                    LibC.tcsetattr_linux(LibC.STDIN_FILENO, LibC.TCSANOW, restoreLinux);
                 }
             });
         }
@@ -1135,6 +1165,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                 .PrivateMode(1002, enabled: false)
                 .PrivateMode(1003, enabled: false)
                 .PrivateMode(1006, enabled: false);
+            try { Out.Flush(); } catch { }
             return;
         }
 
@@ -1157,6 +1188,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                     .PrivateMode(1003, enabled: true);
                 break;
         }
+
+        try { Out.Flush(); } catch { }
     }
 
     private static int ModeRank(TerminalMouseMode mode) => mode switch
@@ -1176,6 +1209,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
 
         _bracketedPasteEnabled = enabled;
         _ansi.PrivateMode(2004, enabled);
+        try { Out.Flush(); } catch { }
     }
 
     private TerminalScope NoOpScopeOrThrow()

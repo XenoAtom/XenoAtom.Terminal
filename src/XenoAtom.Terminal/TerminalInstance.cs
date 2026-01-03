@@ -1083,11 +1083,16 @@ public sealed partial class TerminalInstance : IDisposable
             }
         }
 
+        using var _inputOptionsScope = EnsureInputOptionsForReadLine(options);
         using var _noEchoScope = SetInputEcho(enabled: false);
         using var _pasteScope = options.EnableBracketedPaste ? EnableBracketedPaste() : TerminalScope.Empty;
         using var _mouseScope = options.EnableMouseEditing && Capabilities.SupportsMouse && !Capabilities.IsOutputRedirected
-            ? EnableMouse(TerminalMouseMode.Drag)
+            ? EnableMouse(TerminalMouseMode.Move)
             : TerminalScope.Empty;
+        if ((!_pasteScope.IsEmpty || !_mouseScope.IsEmpty) && !Capabilities.IsOutputRedirected)
+        {
+            Flush();
+        }
 
         if (!options.EnableEditing || Capabilities.IsOutputRedirected || !Capabilities.SupportsCursorPositionSet)
         {
@@ -1096,6 +1101,75 @@ public sealed partial class TerminalInstance : IDisposable
 
         return await ReadLineEditorAsync(options, cancellationToken).ConfigureAwait(false);
     }
+
+    private TerminalScope EnsureInputOptionsForReadLine(TerminalReadLineOptions options)
+    {
+        if (!Backend.IsInputRunning)
+        {
+            return TerminalScope.Empty;
+        }
+
+        var needsMouse = (options.EnableMouseEditing || options.MouseHandler is not null) && Capabilities.SupportsMouse && !Capabilities.IsOutputRedirected;
+        var needsResize = options.EnableEditing && options.ViewWidth is null && !Capabilities.IsOutputRedirected;
+
+        if (!needsMouse && !needsResize)
+        {
+            return TerminalScope.Empty;
+        }
+
+        var current = Volatile.Read(ref _inputOptions);
+        if (current is null)
+        {
+            return TerminalScope.Empty;
+        }
+
+        var updated = CopyInputOptions(current);
+        var changed = false;
+
+        if (needsMouse)
+        {
+            if (!updated.EnableMouseEvents)
+            {
+                updated.EnableMouseEvents = true;
+                changed = true;
+            }
+
+            if (ModeRank(updated.MouseMode) < ModeRank(TerminalMouseMode.Move))
+            {
+                updated.MouseMode = TerminalMouseMode.Move;
+                changed = true;
+            }
+        }
+
+        if (needsResize && !updated.EnableResizeEvents)
+        {
+            updated.EnableResizeEvents = true;
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return TerminalScope.Empty;
+        }
+
+        StartInput(updated);
+
+        return TerminalScope.Create(() =>
+        {
+            if (Backend.IsInputRunning)
+            {
+                StartInput(current);
+            }
+        });
+    }
+
+    private static int ModeRank(TerminalMouseMode mode) => mode switch
+    {
+        TerminalMouseMode.Off => 0,
+        TerminalMouseMode.Clicks => 1,
+        TerminalMouseMode.Drag => 2,
+        _ => 3,
+    };
 
     private static TerminalInputOptions CopyInputOptions(TerminalInputOptions options)
     {
