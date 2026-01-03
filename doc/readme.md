@@ -37,6 +37,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
   - [Rendering and styling the editable line](#rendering-and-styling-the-editable-line)
   - [Fixed-width view, ellipsis, max length](#fixed-width-view-ellipsis-max-length)
   - [Cancellation and newline emission](#cancellation-and-newline-emission)
+- [Troubleshooting](#troubleshooting)
 - [Scopes](#scopes)
 - [Testing](#testing)
 - [Samples](#samples)
@@ -49,6 +50,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
 - Console-like state (title, colors/style, cursor/window)
 - Input (unified events, ReadKey, signals)
 - ReadLine editor (detailed)
+- Troubleshooting
 - Scopes (restore-on-dispose)
 - Testing (in-memory backend)
 - Samples
@@ -475,6 +477,21 @@ var wordEnd = TerminalTextUtility.GetWordEnd("hello_world".AsSpan(), index: 8);
 - Set `EmitNewLineOnAccept = false` to accept without writing a newline.
 
 If `TerminalOptions.ImplicitStartInput` is disabled, callers must start input explicitly (e.g. `Terminal.StartInput()`) before calling `ReadLineAsync`.
+
+## Troubleshooting
+
+Some operations depend on the current backend and host terminal; unsupported operations can become no-ops unless `TerminalOptions.StrictMode` is enabled. When in doubt, check the API/XML docs for notes about host requirements.
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| No mouse events | Mouse reporting isn’t enabled | Wrap your code in `using var _ = Terminal.EnableMouseInput(...)` and ensure input is running (`Terminal.StartInput()`). |
+| Terminal selection/copy stops working | Mouse reporting replaces the terminal’s own selection UI | Hold **Shift** while dragging in most terminals, or disable mouse reporting when not needed. |
+| ReadLine editor is “basic” (no cursor movement) | Output is redirected or cursor positioning is unavailable | Run on an interactive terminal; avoid piping output; if needed for colors only, use `TerminalOptions.ForceAnsi`. |
+| Clipboard on Linux does nothing | No clipboard provider installed or no GUI session | Install `wl-copy`/`wl-paste` (Wayland) or `xclip`/`xsel` (X11). |
+| Clipboard set doesn’t work over SSH | No local system clipboard | Enable OSC 52 fallback (`TerminalOptions.EnableOsc52Clipboard`, enabled by default) and use a terminal that supports it. |
+| Mouse works in `HelloTerminal` but not in `ReadLine` | Mouse editing is opt-in | Set `EnableMouseEditing = true` in `TerminalReadLineOptions` (and enable mouse reporting). |
+| Windows mouse doesn’t work in some terminals | ConPTY terminals deliver mouse as VT sequences | Leave `TerminalOptions.WindowsVtInputDecoder = Auto` or force `Enabled` if needed. |
+| Unexpected input when mixing with `Console.*` | `Console.ReadLine/ReadKey` consumes the same stream | When input is running, use `Terminal.ReadEventsAsync`/`ReadLineAsync` instead of `Console.*`. |
 
 ## Scopes
 
