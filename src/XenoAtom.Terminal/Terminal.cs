@@ -254,7 +254,7 @@ public static partial class Terminal
     /// <remarks>
     /// This method is intended for test processes only.
     /// </remarks>
-    public static void ResetForTests()
+    internal static void ResetForTests()
     {
         lock (InitLock)
         {

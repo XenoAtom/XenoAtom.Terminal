@@ -520,7 +520,7 @@ public sealed partial class TerminalInstance : IDisposable
     /// <remarks>
     /// This method is intended for test processes only.
     /// </remarks>
-    public void ResetForTests()
+    internal void ResetForTests()
     {
         if (!_isInitialized)
         {
