@@ -527,7 +527,8 @@ public sealed partial class TerminalInstance
                     controller.BeginSelection(index);
                     return true;
 
-                case TerminalMouseKind.Drag when mouse.Button == TerminalMouseButton.Left:
+                case TerminalMouseKind.Drag:
+                case TerminalMouseKind.Move:
                     if (!mouseSelecting)
                     {
                         return false;
@@ -535,7 +536,7 @@ public sealed partial class TerminalInstance
                     controller.SetCursorIndex(index, extendSelection: true);
                     return true;
 
-                case TerminalMouseKind.Up when mouse.Button == TerminalMouseButton.Left:
+                case TerminalMouseKind.Up:
                     if (!mouseSelecting)
                     {
                         return false;

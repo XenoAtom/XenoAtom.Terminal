@@ -30,6 +30,10 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
     private Task? _inputTask;
     private CancellationTokenSource? _inputCts;
 
+    private readonly bool _useVtInputDecoder = Environment.GetEnvironmentVariable("WT_SESSION") is not null;
+    private readonly int[] _vtMouseModeCounts = new int[4];
+    private TerminalMouseMode _vtMouseMode;
+
     private uint _savedInputMode;
     private bool _hasSavedInputMode;
 
@@ -640,7 +644,99 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             return NoOpScopeOrThrow();
         }
 
-        return TerminalScope.Create(() => Win32Console.SetConsoleMode(_inputHandle, previousMode));
+        if (!_useVtInputDecoder || Capabilities.IsOutputRedirected || !Capabilities.AnsiEnabled)
+        {
+            return TerminalScope.Create(() => Win32Console.SetConsoleMode(_inputHandle, previousMode));
+        }
+
+        var rank = ModeRank(mode);
+        if (rank > 0)
+        {
+            lock (_inputLock)
+            {
+                _vtMouseModeCounts[rank]++;
+                UpdateVtMouseMode();
+            }
+        }
+
+        return TerminalScope.Create(() =>
+        {
+            try { Win32Console.SetConsoleMode(_inputHandle, previousMode); } catch { }
+            if (rank > 0)
+            {
+                lock (_inputLock)
+                {
+                    if (_vtMouseModeCounts[rank] > 0)
+                    {
+                        _vtMouseModeCounts[rank]--;
+                        UpdateVtMouseMode();
+                    }
+                }
+            }
+        });
+    }
+
+    private static int ModeRank(TerminalMouseMode mode) => mode switch
+    {
+        TerminalMouseMode.Off => 0,
+        TerminalMouseMode.Clicks => 1,
+        TerminalMouseMode.Drag => 2,
+        TerminalMouseMode.Move => 3,
+        _ => 0,
+    };
+
+    private void UpdateVtMouseMode()
+    {
+        var desired = TerminalMouseMode.Off;
+        if (_vtMouseModeCounts[3] > 0) desired = TerminalMouseMode.Move;
+        else if (_vtMouseModeCounts[2] > 0) desired = TerminalMouseMode.Drag;
+        else if (_vtMouseModeCounts[1] > 0) desired = TerminalMouseMode.Clicks;
+
+        if (desired == _vtMouseMode)
+        {
+            return;
+        }
+
+        _vtMouseMode = desired;
+        SetVtMouseMode(desired);
+    }
+
+    private void SetVtMouseMode(TerminalMouseMode mode)
+    {
+        if (Capabilities.IsOutputRedirected || !Capabilities.AnsiEnabled)
+        {
+            return;
+        }
+
+        if (mode == TerminalMouseMode.Off)
+        {
+            _ansi.PrivateMode(1000, enabled: false)
+                .PrivateMode(1002, enabled: false)
+                .PrivateMode(1003, enabled: false)
+                .PrivateMode(1006, enabled: false);
+            return;
+        }
+
+        // Use SGR mouse events (1006) and select the reporting level.
+        _ansi.PrivateMode(1006, enabled: true);
+        switch (mode)
+        {
+            case TerminalMouseMode.Clicks:
+                _ansi.PrivateMode(1000, enabled: true)
+                    .PrivateMode(1002, enabled: false)
+                    .PrivateMode(1003, enabled: false);
+                break;
+            case TerminalMouseMode.Drag:
+                _ansi.PrivateMode(1000, enabled: true)
+                    .PrivateMode(1002, enabled: true)
+                    .PrivateMode(1003, enabled: false);
+                break;
+            case TerminalMouseMode.Move:
+                _ansi.PrivateMode(1000, enabled: true)
+                    .PrivateMode(1002, enabled: false)
+                    .PrivateMode(1003, enabled: true);
+                break;
+        }
     }
 
     /// <inheritdoc />
@@ -816,6 +912,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
         PrepareInputMode();
 
+        using var vtDecoder = _useVtInputDecoder ? new VtInputDecoder() : null;
+
         const uint bufferLength = 32;
         var buffer = stackalloc Win32Console.INPUT_RECORD[(int)bufferLength];
         while (!cancellationToken.IsCancellationRequested)
@@ -823,6 +921,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             var wait = Win32Console.WaitForSingleObject(_inputHandle, 50);
             if (wait == Win32Console.WAIT_TIMEOUT)
             {
+                vtDecoder?.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events);
                 continue;
             }
 
@@ -840,9 +939,11 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             var readCount = (int)read;
             for (var i = 0; i < readCount; i++)
             {
-                HandleInputRecord(buffer[i]);
+                HandleInputRecord(buffer[i], vtDecoder);
             }
         }
+
+        vtDecoder?.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events);
     }
 
     private void PrepareInputMode()
@@ -900,12 +1001,12 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         Win32Console.SetConsoleMode(_inputHandle, desiredMode);
     }
 
-    private void HandleInputRecord(Win32Console.INPUT_RECORD record)
+    private void HandleInputRecord(Win32Console.INPUT_RECORD record, VtInputDecoder? vtDecoder)
     {
         switch (record.EventType)
         {
             case Win32Console.KEY_EVENT:
-                HandleKeyEvent(record.Event.KeyEvent);
+                HandleKeyEvent(record.Event.KeyEvent, vtDecoder);
                 break;
             case Win32Console.MOUSE_EVENT:
                 if (_inputOptions?.EnableMouseEvents == true)
@@ -922,7 +1023,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         }
     }
 
-    private void HandleKeyEvent(Win32Console.KEY_EVENT_RECORD key)
+    private void HandleKeyEvent(Win32Console.KEY_EVENT_RECORD key, VtInputDecoder? vtDecoder)
     {
         var modifiers = DecodeModifiers(key.dwControlKeyState);
         var terminalKey = MapKey(key.wVirtualKeyCode);
@@ -947,6 +1048,14 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
         var wasDown = _keyDown[vkIndex];
         _keyDown[vkIndex] = true;
+
+        Span<char> vtOne = stackalloc char[1];
+        var useVt = _useVtInputDecoder && vtDecoder is not null && ch.HasValue;
+        if (useVt)
+        {
+            vtOne[0] = ch!.Value;
+        }
+
         for (var i = 0; i < repeat; i++)
         {
             if (!wasDown && i == 0 && ch is not null)
@@ -962,6 +1071,13 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
                 {
                     _events.Publish(new TerminalSignalEvent { Kind = TerminalSignalKind.Break });
                 }
+            }
+
+            if (useVt)
+            {
+                vtDecoder!.Decode(vtOne, isFinalChunk: false, _inputOptions, _events);
+                wasDown = true;
+                continue;
             }
 
             _events.Publish(new TerminalKeyEvent
@@ -1040,6 +1156,12 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
     private void HandleMouseEvent(Win32Console.MOUSE_EVENT_RECORD mouse)
     {
+        if (_useVtInputDecoder && _vtMouseMode != TerminalMouseMode.Off)
+        {
+            // When VT mouse reporting is enabled (Windows Terminal), prefer decoding VT mouse sequences.
+            return;
+        }
+
         var x = mouse.dwMousePosition.X;
         var y = mouse.dwMousePosition.Y;
         var modifiers = DecodeModifiers(mouse.dwControlKeyState);
@@ -1067,8 +1189,14 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
         if ((mouse.dwEventFlags & Win32Console.MOUSE_MOVED) != 0)
         {
-            var isDrag = mouse.dwButtonState != 0;
-            if (mode == TerminalMouseMode.Clicks || (mode == TerminalMouseMode.Drag && !isDrag))
+            if (mode == TerminalMouseMode.Clicks)
+            {
+                return;
+            }
+
+            var pressedButton = DecodePressedButton(mouse.dwButtonState);
+            var kind = pressedButton == TerminalMouseButton.None ? TerminalMouseKind.Move : TerminalMouseKind.Drag;
+            if (mode == TerminalMouseMode.Drag && kind == TerminalMouseKind.Move)
             {
                 return;
             }
@@ -1077,8 +1205,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             {
                 X = x,
                 Y = y,
-                Button = TerminalMouseButton.None,
-                Kind = isDrag ? TerminalMouseKind.Drag : TerminalMouseKind.Move,
+                Button = pressedButton,
+                Kind = kind,
                 Modifiers = modifiers,
             });
             return;
@@ -1185,6 +1313,16 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         if ((changedMask & Win32Console.FROM_LEFT_2ND_BUTTON_PRESSED) != 0) return TerminalMouseButton.Middle;
         if ((changedMask & Win32Console.FROM_LEFT_3RD_BUTTON_PRESSED) != 0) return TerminalMouseButton.X1;
         if ((changedMask & Win32Console.FROM_LEFT_4TH_BUTTON_PRESSED) != 0) return TerminalMouseButton.X2;
+        return TerminalMouseButton.None;
+    }
+
+    private static TerminalMouseButton DecodePressedButton(uint state)
+    {
+        if ((state & Win32Console.FROM_LEFT_1ST_BUTTON_PRESSED) != 0) return TerminalMouseButton.Left;
+        if ((state & Win32Console.RIGHTMOST_BUTTON_PRESSED) != 0) return TerminalMouseButton.Right;
+        if ((state & Win32Console.FROM_LEFT_2ND_BUTTON_PRESSED) != 0) return TerminalMouseButton.Middle;
+        if ((state & Win32Console.FROM_LEFT_3RD_BUTTON_PRESSED) != 0) return TerminalMouseButton.X1;
+        if ((state & Win32Console.FROM_LEFT_4TH_BUTTON_PRESSED) != 0) return TerminalMouseButton.X2;
         return TerminalMouseButton.None;
     }
 

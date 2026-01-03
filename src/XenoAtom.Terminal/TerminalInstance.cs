@@ -1078,6 +1078,9 @@ public sealed partial class TerminalInstance : IDisposable
 
         using var _noEchoScope = SetInputEcho(enabled: false);
         using var _pasteScope = options.EnableBracketedPaste ? EnableBracketedPaste() : TerminalScope.Empty;
+        using var _mouseScope = options.EnableMouseEditing && Capabilities.SupportsMouse && !Capabilities.IsOutputRedirected
+            ? EnableMouse(TerminalMouseMode.Drag)
+            : TerminalScope.Empty;
 
         if (!options.EnableEditing || Capabilities.IsOutputRedirected || !Capabilities.SupportsCursorPositionSet)
         {

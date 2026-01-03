@@ -1,9 +1,28 @@
 using System.Text;
-using XenoAtom.Ansi;
 using XenoAtom.Terminal;
 
 namespace HelloReadLine;
 
+/// <summary>
+/// Sample program demonstrating `XenoAtom.Terminal`'s interactive ReadLine editor.
+/// </summary>
+/// <remarks>
+/// This sample showcases:
+/// <list type="bullet">
+///   <item><description>Initializing the terminal with common output/ANSI preferences.</description></item>
+///   <item><description>Starting/stopping terminal input with mouse + resize event support.</description></item>
+///   <item><description>An interactive prompt loop using `Terminal.ReadLineAsync`.</description></item>
+///   <item><description>Prompt customization (a line counter rendered with markup).</description></item>
+///   <item><description>Cancelable input handling (`OperationCanceledException`) and EOF handling (`null`).</description></item>
+///   <item><description>Command parsing and runtime toggling of editor options (e.g. view width, max length).</description></item>
+///   <item><description>Tab completion for slash commands via `CompletionHandler`.</description></item>
+///   <item><description>A custom key binding (Ctrl+O inserts a timestamp) via `KeyHandler`.</description></item>
+///   <item><description>A custom markup renderer that highlights selections, the current word, and keywords
+///   (e.g. <c>error</c>, <c>warn</c>, <c>info</c>) while properly escaping markup brackets.</description></item>
+///   <item><description>Writing output atomically to avoid interleaving with input rendering.</description></item>
+/// </list>
+/// Intended as a compact, end-to-end reference for integrating the ReadLine editor into a console app.
+/// </remarks>
 public static class Program
 {
     private static readonly string[] Commands =
@@ -54,7 +73,7 @@ public static class Program
             while (true)
             {
                 var promptForThisLine = promptNumber;
-                options.PromptMarkup = () => $"[gray]{promptForThisLine,3}[/] [darkgray]>[/] ";
+                options.PromptMarkup = () => $"[gray]{promptForThisLine,3}[/] [cyan]>[/] ";
 
                 string? line;
                 try
@@ -414,10 +433,12 @@ public static class Program
                               - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
                               - [cyan]Mouse click/drag[/] sets cursor and selection (when supported)
                               - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]
+                              
+                              [gray]Tip: when an app enables mouse reporting, terminal text selection usually stops working. Hold Shift while dragging to force terminal selection (varies by terminal).[/]
 
-                             [bold]Commands[/]
-                             - [cyan]/help[/]  show help
-                             - [cyan]/exit[/]  exit the sample
+                              [bold]Commands[/]
+                              - [cyan]/help[/]  show help
+                              - [cyan]/exit[/]  exit the sample
                              - [cyan]/clear[/] clear the screen
                              - [cyan]/nonl[/]  toggle EmitNewLineOnAccept
                              - [cyan]/width N[/] set ViewWidth (cells), e.g. /width 20
@@ -426,8 +447,6 @@ public static class Program
                              [gray]Type /help for commands. Type /exit to quit.[/]
                              """);
     }
-
-
 
     private static bool HandleCommand(string line, TerminalReadLineOptions options)
     {

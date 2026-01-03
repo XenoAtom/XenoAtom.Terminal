@@ -115,6 +115,9 @@ internal sealed class VtInputDecoder : IDisposable
             case '\t':
                 ev = new TerminalKeyEvent { Key = TerminalKey.Tab, Char = '\t' };
                 return true;
+            case '\b':
+                ev = new TerminalKeyEvent { Key = TerminalKey.Backspace, Char = '\b' };
+                return true;
             case '\r':
                 ev = new TerminalKeyEvent { Key = TerminalKey.Enter, Char = '\r' };
                 return true;

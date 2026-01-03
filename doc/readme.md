@@ -354,6 +354,16 @@ Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMo
 var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions { EnableMouseEditing = true });
 ```
 
+`EnableMouseEditing` enables mouse reporting for the duration of the ReadLine call (best effort), but the input loop must still be started with mouse events enabled.
+
+#### Why mouse “does nothing” in terminals
+
+Most terminal emulators (including Windows Terminal) use the mouse for **their own UI** by default (text selection, copy/paste, context menus).
+Applications only receive mouse events after they explicitly enable *mouse reporting*.
+
+When mouse reporting is enabled, the terminal typically stops doing its own text selection and instead sends mouse events to the application.
+In many terminals you can still force “terminal selection” by holding a modifier (commonly **Shift**) while dragging.
+
 ### Rendering and styling the editable line
 
 Use `MarkupRenderer` to control how the visible slice of the line is rendered (e.g. highlighting matches or selection):
