@@ -67,6 +67,29 @@ public sealed class VtInputDecoderTests
     }
 
     [TestMethod]
+    public void Decode_BracketedPaste_Chunked_ProducesPasteEvent()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        // Windows VT input can deliver sequences character-by-character; ensure streaming decode works.
+        const string input = "\x1b[200~hello\x1b[201~";
+        foreach (var ch in input)
+        {
+            Span<char> one = stackalloc char[1];
+            one[0] = ch;
+            decoder.Decode(one, isFinalChunk: false, options: new TerminalInputOptions(), broadcaster);
+        }
+
+        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        Assert.IsInstanceOfType(ev, typeof(TerminalPasteEvent));
+        Assert.AreEqual("hello", ((TerminalPasteEvent)ev).Text);
+        Assert.IsFalse(broadcaster.TryReadEvent(out _));
+    }
+
+    [TestMethod]
     public void Decode_SgrMouseEvent_RequiresMouseEnabled()
     {
         using var decoder = new VtInputDecoder();

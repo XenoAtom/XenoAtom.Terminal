@@ -45,6 +45,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
     private int _altScreenRefCount;
 
+    private int _bracketedPasteRefCount;
+
     private ConsoleCancelEventHandler? _cancelKeyPressHandler;
     private bool _isCancelKeyPressHooked;
 
@@ -146,7 +148,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             SupportsAlternateScreen = ansiEnabled && !isOutputRedirected,
             SupportsCursorVisibility = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
             SupportsMouse = !isInputRedirected,
-            SupportsBracketedPaste = false,
+            SupportsBracketedPaste = ansiEnabled && _useVtInputDecoder && !isOutputRedirected && !isInputRedirected,
             SupportsRawMode = !isInputRedirected,
             SupportsCursorPositionGet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
             SupportsCursorPositionSet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
@@ -941,7 +943,43 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
     }
 
     /// <inheritdoc />
-    public TerminalScope EnableBracketedPaste() => NoOpScopeOrThrow();
+    public TerminalScope EnableBracketedPaste()
+    {
+        if (!Capabilities.SupportsBracketedPaste || Capabilities.IsOutputRedirected)
+        {
+            return NoOpScopeOrThrow();
+        }
+
+        lock (_inputLock)
+        {
+            if (Interlocked.Increment(ref _bracketedPasteRefCount) == 1)
+            {
+                SetBracketedPasteEnabled(enabled: true);
+            }
+
+            return TerminalScope.Create(() =>
+            {
+                lock (_inputLock)
+                {
+                    if (Interlocked.Decrement(ref _bracketedPasteRefCount) == 0)
+                    {
+                        SetBracketedPasteEnabled(enabled: false);
+                    }
+                }
+            });
+        }
+    }
+
+    private void SetBracketedPasteEnabled(bool enabled)
+    {
+        if (Capabilities.IsOutputRedirected || !Capabilities.AnsiEnabled)
+        {
+            return;
+        }
+
+        _ansi.PrivateMode(2004, enabled);
+        try { Out.Flush(); } catch { }
+    }
 
     /// <inheritdoc />
     public TerminalScope UseTitle(string title)

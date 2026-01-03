@@ -277,6 +277,7 @@ await foreach (var ev in Terminal.ReadEventsAsync())
 
 - Mouse reporting can disable the terminal's own selection UI (and on Windows console it disables Quick Edit), so apps should enable it only when needed.
 - Bracketed paste changes how pasted text is delivered (as `TerminalPasteEvent` instead of regular text), which not all apps want.
+- On Windows, bracketed paste requires VT input decoding (`ENABLE_VIRTUAL_TERMINAL_INPUT`). If your host doesn't provide VT input sequences, `EnableBracketedPasteInput()` won't produce `TerminalPasteEvent`.
 
 ### Important: do not mix Console input APIs
 
@@ -485,11 +486,12 @@ Some operations depend on the current backend and host terminal; unsupported ope
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| No mouse events | Mouse reporting isn’t enabled | Wrap your code in `using var _ = Terminal.EnableMouseInput(...)` and ensure input is running (`Terminal.StartInput()`). |
-| Terminal selection/copy stops working | Mouse reporting replaces the terminal’s own selection UI | Hold **Shift** while dragging in most terminals, or disable mouse reporting when not needed. |
-| ReadLine editor is “basic” (no cursor movement) | Output is redirected or cursor positioning is unavailable | Run on an interactive terminal; avoid piping output; if needed for colors only, use `TerminalOptions.ForceAnsi`. |
+| No mouse events | Mouse reporting isn't enabled | Wrap your code in `using var _ = Terminal.EnableMouseInput(...)` and ensure input is running (`Terminal.StartInput()`). |
+| No `TerminalPasteEvent` on Windows | VT input decoding not active (or host doesn't emit VT sequences) | Use Windows Terminal / a VT-capable host and set `TerminalOptions.WindowsVtInputDecoder = Enabled` (or `Auto` if your host already enables it). Then use `using var _ = Terminal.EnableBracketedPasteInput();`. |
+| Terminal selection/copy stops working | Mouse reporting replaces the terminal's own selection UI | Hold **Shift** while dragging in most terminals, or disable mouse reporting when not needed. |
+| ReadLine editor is "basic" (no cursor movement) | Output is redirected or cursor positioning is unavailable | Run on an interactive terminal; avoid piping output; if needed for colors only, use `TerminalOptions.ForceAnsi`. |
 | Clipboard on Linux does nothing | No clipboard provider installed or no GUI session | Install `wl-copy`/`wl-paste` (Wayland) or `xclip`/`xsel` (X11). |
-| Clipboard set doesn’t work over SSH | No local system clipboard | Enable OSC 52 fallback (`TerminalOptions.EnableOsc52Clipboard`, enabled by default) and use a terminal that supports it. |
+| Clipboard set doesn't work over SSH | No local system clipboard | Enable OSC 52 fallback (`TerminalOptions.EnableOsc52Clipboard`, enabled by default) and use a terminal that supports it. |
 | Mouse works in `HelloTerminal` but not in `ReadLine` | Mouse editing is opt-in | Set `EnableMouseEditing = true` in `TerminalReadLineOptions` (and enable mouse reporting). |
 | Windows mouse doesn’t work in some terminals | The host may require VT input mode for certain sequences | Set `TerminalOptions.WindowsVtInputDecoder = Enabled`. |
 | Unexpected input when mixing with `Console.*` | `Console.ReadLine/ReadKey` consumes the same stream | When input is running, use `Terminal.ReadEventsAsync`/`ReadLineAsync` instead of `Console.*`. |
