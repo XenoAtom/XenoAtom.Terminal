@@ -329,8 +329,17 @@ public static partial class Terminal
     /// <inheritdoc cref="TerminalInstance.EnableMouse" />
     public static TerminalScope EnableMouse(TerminalMouseMode mode = TerminalMouseMode.Drag) => Instance.EnableMouse(mode);
 
+    /// <inheritdoc cref="TerminalInstance.EnableMouseInput" />
+    public static TerminalScope EnableMouseInput(TerminalMouseMode mode = TerminalMouseMode.Drag) => Instance.EnableMouseInput(mode);
+
+    /// <inheritdoc cref="TerminalInstance.EnableResizeEvents" />
+    public static TerminalScope EnableResizeEvents() => Instance.EnableResizeEvents();
+
     /// <inheritdoc cref="TerminalInstance.EnableBracketedPaste" />
     public static TerminalScope EnableBracketedPaste() => Instance.EnableBracketedPaste();
+
+    /// <inheritdoc cref="TerminalInstance.EnableBracketedPasteInput" />
+    public static TerminalScope EnableBracketedPasteInput() => Instance.EnableBracketedPasteInput();
 
     /// <inheritdoc cref="TerminalInstance.UseTitle" />
     public static TerminalScope UseTitle(string title) => Instance.UseTitle(title);

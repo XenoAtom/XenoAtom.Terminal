@@ -104,6 +104,64 @@ public class TerminalTests
     }
 
     [TestMethod]
+    public async Task EnableMouseInput_OverridesMouseFiltering_AndRestores()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false, MouseMode = TerminalMouseMode.Off });
+
+        using (Terminal.EnableMouseInput(TerminalMouseMode.Clicks))
+        {
+            var task = Terminal.ReadEventAsync().AsTask();
+            backend.PushEvent(new TerminalMouseEvent { X = 1, Y = 2, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Down });
+            var ev = await task;
+            Assert.AreEqual(TerminalMouseKind.Down, ((TerminalMouseEvent)ev).Kind);
+        }
+
+        using var cts = new CancellationTokenSource(50);
+        var filtered = Terminal.ReadEventAsync(cts.Token).AsTask();
+        backend.PushEvent(new TerminalMouseEvent { X = 1, Y = 2, Button = TerminalMouseButton.Left, Kind = TerminalMouseKind.Down });
+
+        try
+        {
+            await filtered;
+            Assert.Fail("Expected OperationCanceledException");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    [TestMethod]
+    public async Task EnableResizeEvents_OverridesResizeFiltering_AndRestores()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        using (Terminal.EnableResizeEvents())
+        {
+            var task = Terminal.ReadEventAsync().AsTask();
+            backend.PushEvent(new TerminalResizeEvent { Size = new TerminalSize(123, 45) });
+            var ev = await task;
+            Assert.AreEqual(123, ((TerminalResizeEvent)ev).Size.Columns);
+        }
+
+        using var cts = new CancellationTokenSource(50);
+        var filtered = Terminal.ReadEventAsync(cts.Token).AsTask();
+        backend.PushEvent(new TerminalResizeEvent { Size = new TerminalSize(123, 45) });
+
+        try
+        {
+            await filtered;
+            Assert.Fail("Expected OperationCanceledException");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    [TestMethod]
     public async Task ReadEventAsync_SynthesizesDoubleClick_FromMouseDown()
     {
         var backend = new InMemoryTerminalBackend();

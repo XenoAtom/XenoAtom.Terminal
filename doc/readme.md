@@ -375,11 +375,11 @@ var options = new TerminalReadLineOptions
 Mouse-based cursor positioning and selection is opt-in:
 
 ```csharp
-Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Drag });
+using var _mouse = Terminal.EnableMouseInput(TerminalMouseMode.Drag);
 var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions { EnableMouseEditing = true });
 ```
 
-`EnableMouseEditing` enables mouse reporting for the duration of the ReadLine call, but the input loop must still be started with mouse events enabled.
+`EnableMouseInput(...)` enables mouse reporting and ensures mouse events are published by the input loop.
 
 #### Why mouse “does nothing” in terminals
 

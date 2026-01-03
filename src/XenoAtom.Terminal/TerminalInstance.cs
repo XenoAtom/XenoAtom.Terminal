@@ -799,10 +799,80 @@ public sealed partial class TerminalInstance : IDisposable
     public TerminalScope EnableMouse(TerminalMouseMode mode = TerminalMouseMode.Drag) => UseBackendScope(b => b.EnableMouse(mode));
 
     /// <summary>
+    /// Enables mouse input end-to-end: ensures mouse events are published by the input loop and enables mouse reporting on the backend.
+    /// </summary>
+    /// <param name="mode">The mouse reporting mode.</param>
+    /// <returns>A scope that restores the previous state on dispose.</returns>
+    public TerminalScope EnableMouseInput(TerminalMouseMode mode = TerminalMouseMode.Drag)
+    {
+        var inputScope = UseInputOptionsScope(options =>
+        {
+            options.EnableMouseEvents = true;
+            if (ModeRank(options.MouseMode) < ModeRank(mode))
+            {
+                options.MouseMode = mode;
+            }
+        });
+
+        var backendScope = EnableMouse(mode);
+
+        if (inputScope.IsEmpty)
+        {
+            return backendScope;
+        }
+
+        if (backendScope.IsEmpty)
+        {
+            return inputScope;
+        }
+
+        return TerminalScope.Create(() =>
+        {
+            backendScope.Dispose();
+            inputScope.Dispose();
+        });
+    }
+
+    /// <summary>
+    /// Enables resize events by ensuring the input loop is running with resize events enabled.
+    /// </summary>
+    /// <returns>A scope that restores the previous state on dispose.</returns>
+    public TerminalScope EnableResizeEvents()
+    {
+        return UseInputOptionsScope(options => options.EnableResizeEvents = true);
+    }
+
+    /// <summary>
     /// Enables bracketed paste within a scope and restores the previous state when disposed (best effort).
     /// </summary>
     /// <returns>A scope that restores the previous state on dispose.</returns>
     public TerminalScope EnableBracketedPaste() => UseBackendScope(b => b.EnableBracketedPaste());
+
+    /// <summary>
+    /// Enables bracketed paste end-to-end: ensures the input loop is running and enables bracketed paste on the backend.
+    /// </summary>
+    /// <returns>A scope that restores the previous state on dispose.</returns>
+    public TerminalScope EnableBracketedPasteInput()
+    {
+        var inputScope = EnsureInputRunningScope();
+        var backendScope = EnableBracketedPaste();
+
+        if (inputScope.IsEmpty)
+        {
+            return backendScope;
+        }
+
+        if (backendScope.IsEmpty)
+        {
+            return inputScope;
+        }
+
+        return TerminalScope.Create(() =>
+        {
+            backendScope.Dispose();
+            inputScope.Dispose();
+        });
+    }
 
     /// <summary>
     /// Sets the terminal title within a scope and restores the previous title when disposed (best effort).
@@ -880,6 +950,45 @@ public sealed partial class TerminalInstance : IDisposable
         while (Backend.TryReadEvent(out _))
         {
         }
+    }
+
+    private TerminalScope EnsureInputRunningScope()
+    {
+        if (Backend.IsInputRunning)
+        {
+            return TerminalScope.Empty;
+        }
+
+        StartInput();
+        return TerminalScope.Create(() => StopInputAsync(CancellationToken.None).GetAwaiter().GetResult());
+    }
+
+    private TerminalScope UseInputOptionsScope(Action<TerminalInputOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var wasRunning = Backend.IsInputRunning;
+        var previous = Volatile.Read(ref _inputOptions);
+        var updated = previous is null ? CreateDefaultInputOptions() : CopyInputOptions(previous);
+
+        configure(updated);
+        NormalizeInputOptions(updated);
+
+        if (!wasRunning)
+        {
+            StartInput(updated);
+            return TerminalScope.Create(() => StopInputAsync(CancellationToken.None).GetAwaiter().GetResult());
+        }
+
+        StartInput(updated);
+
+        return TerminalScope.Create(() =>
+        {
+            if (Backend.IsInputRunning && previous is not null)
+            {
+                StartInput(previous);
+            }
+        });
     }
 
     /// <summary>
