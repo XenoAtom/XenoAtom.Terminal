@@ -19,6 +19,7 @@ public class VirtualTerminalBackend : ITerminalBackend
     private readonly bool _disposeWriters;
     private readonly object _clipboardLock = new();
     private string? _clipboardText;
+    private TerminalOptions? _options;
 
     private TextWriter _out = TextWriter.Null;
     private TextWriter _error = TextWriter.Null;
@@ -68,6 +69,9 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsCursorPositionGet = true,
             SupportsCursorPositionSet = true,
             SupportsClipboard = true,
+            SupportsClipboardGet = true,
+            SupportsClipboardSet = true,
+            SupportsOsc52Clipboard = true,
             SupportsTitleGet = true,
             SupportsTitleSet = true,
             SupportsWindowSize = true,
@@ -198,6 +202,11 @@ public class VirtualTerminalBackend : ITerminalBackend
     public bool TryGetClipboardText([NotNullWhen(true)] out string? text)
     {
         ThrowIfDisposed();
+        if (!Capabilities.SupportsClipboardGet && !Capabilities.SupportsClipboard)
+        {
+            text = null;
+            return false;
+        }
         lock (_clipboardLock)
         {
             text = _clipboardText;
@@ -209,6 +218,20 @@ public class VirtualTerminalBackend : ITerminalBackend
     public bool TrySetClipboardText(ReadOnlySpan<char> text)
     {
         ThrowIfDisposed();
+        if (!Capabilities.SupportsClipboardSet && !Capabilities.SupportsClipboard)
+        {
+            var options = _options;
+            if (options is not null
+                && options.EnableOsc52Clipboard
+                && Capabilities.SupportsOsc52Clipboard
+                && Capabilities.AnsiEnabled
+                && !Capabilities.IsOutputRedirected)
+            {
+                return Osc52Clipboard.TrySetText(_out, text, options.Osc52ClipboardMaxBytes);
+            }
+
+            return false;
+        }
         lock (_clipboardLock)
         {
             _clipboardText = text.Length == 0 ? string.Empty : new string(text);
@@ -227,6 +250,7 @@ public class VirtualTerminalBackend : ITerminalBackend
     {
         ArgumentNullException.ThrowIfNull(options);
         ThrowIfDisposed();
+        _options = options;
 
         if (options.PreferUtf8Output)
         {
@@ -257,6 +281,10 @@ public class VirtualTerminalBackend : ITerminalBackend
             colorLevel = TerminalColorLevel.None;
         }
 
+        var supportsClipboardGet = _baseCapabilities.SupportsClipboardGet || _baseCapabilities.SupportsClipboard;
+        var supportsClipboardSet = _baseCapabilities.SupportsClipboardSet || _baseCapabilities.SupportsClipboard;
+        var supportsOsc52Clipboard = ansiEnabled && _baseCapabilities.SupportsOsc52Clipboard && !(_baseCapabilities.IsOutputRedirected);
+
         Capabilities = new TerminalCapabilities
         {
             AnsiEnabled = ansiEnabled,
@@ -269,7 +297,10 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsRawMode = _baseCapabilities.SupportsRawMode,
             SupportsCursorPositionGet = _baseCapabilities.SupportsCursorPositionGet,
             SupportsCursorPositionSet = _baseCapabilities.SupportsCursorPositionSet,
-            SupportsClipboard = _baseCapabilities.SupportsClipboard,
+            SupportsClipboardGet = supportsClipboardGet,
+            SupportsClipboardSet = supportsClipboardSet,
+            SupportsOsc52Clipboard = supportsOsc52Clipboard,
+            SupportsClipboard = supportsClipboardGet || supportsClipboardSet,
             SupportsTitleGet = _baseCapabilities.SupportsTitleGet,
             SupportsTitleSet = _baseCapabilities.SupportsTitleSet,
             SupportsWindowSize = _baseCapabilities.SupportsWindowSize,

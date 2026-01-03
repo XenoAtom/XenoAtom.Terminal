@@ -65,6 +65,21 @@ public sealed class TerminalCapabilities
     public bool SupportsClipboard { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether clipboard text can be read.
+    /// </summary>
+    public bool SupportsClipboardGet { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether clipboard text can be set.
+    /// </summary>
+    public bool SupportsClipboardSet { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether OSC 52 clipboard sequences can be emitted (set-only).
+    /// </summary>
+    public bool SupportsOsc52Clipboard { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether the terminal title can be retrieved.
     /// </summary>
     public bool SupportsTitleGet { get; init; }

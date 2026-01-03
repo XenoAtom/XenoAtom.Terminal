@@ -48,6 +48,20 @@ public sealed class TerminalOptions
     public bool Prefer7BitC1 { get; set; } = true;
 
     /// <summary>
+    /// Enables OSC 52 clipboard sequences as a fallback for setting clipboard text on ANSI-capable terminals.
+    /// </summary>
+    /// <remarks>
+    /// OSC 52 is commonly used in remote sessions (e.g. SSH) where the process cannot access a local system clipboard.
+    /// Some terminal emulators and multiplexers can disable or limit this feature.
+    /// </remarks>
+    public bool EnableOsc52Clipboard { get; set; } = true;
+
+    /// <summary>
+    /// Maximum UTF-8 byte length allowed for OSC 52 clipboard payloads.
+    /// </summary>
+    public int Osc52ClipboardMaxBytes { get; set; } = 100_000;
+
+    /// <summary>
     /// Preferred color capability when ANSI is enabled.
     /// </summary>
     public TerminalColorLevel PreferredColorLevel { get; set; } = TerminalColorLevel.TrueColor;

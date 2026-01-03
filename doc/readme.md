@@ -241,6 +241,16 @@ Clipboard support is platform-dependent:
 - macOS: `pbcopy` / `pbpaste`
 - Linux: prefers `wl-copy` / `wl-paste` (Wayland), then `xclip` / `xsel` (X11)
 
+When a local system clipboard is not available (common in remote shells), Terminal can also set clipboard text via **OSC 52**
+when ANSI output is enabled. You can disable this fallback via `TerminalOptions.EnableOsc52Clipboard`.
+
+Async helpers are available when you want timeout/cancellation:
+
+```csharp
+var text = await Terminal.Clipboard.GetTextAsync(timeoutMs: 500);
+await Terminal.Clipboard.TrySetTextAsync("Hello".AsMemory(), timeoutMs: 500);
+```
+
 ## Input
 
 XenoAtom.Terminal uses a single unified event stream for input. This is the preferred API for TUIs.

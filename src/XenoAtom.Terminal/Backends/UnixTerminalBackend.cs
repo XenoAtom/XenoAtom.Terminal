@@ -74,6 +74,9 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         SupportsCursorPositionGet = false,
         SupportsCursorPositionSet = false,
         SupportsClipboard = false,
+        SupportsClipboardGet = false,
+        SupportsClipboardSet = false,
+        SupportsOsc52Clipboard = false,
         SupportsTitleGet = true,
         SupportsTitleSet = false,
         SupportsWindowSize = false,
@@ -134,6 +137,11 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
 
         var supportsOsc8 = ansiEnabled && !string.Equals(term, "linux", StringComparison.OrdinalIgnoreCase);
 
+        var hasClipboardProvider = UnixClipboard.TryDetectProvider(out _clipboardProvider);
+        var supportsOsc52Clipboard = ansiEnabled && !isOutputRedirected && !string.Equals(term, "linux", StringComparison.OrdinalIgnoreCase);
+        var supportsClipboardGet = hasClipboardProvider;
+        var supportsClipboardSet = hasClipboardProvider || supportsOsc52Clipboard;
+
         Capabilities = new TerminalCapabilities
         {
             AnsiEnabled = ansiEnabled,
@@ -146,7 +154,10 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             SupportsRawMode = !isInputRedirected,
             SupportsCursorPositionGet = ansiEnabled && !isInputRedirected && !isOutputRedirected,
             SupportsCursorPositionSet = !isOutputRedirected,
-            SupportsClipboard = UnixClipboard.TryDetectProvider(out _clipboardProvider),
+            SupportsClipboardGet = supportsClipboardGet,
+            SupportsClipboardSet = supportsClipboardSet,
+            SupportsOsc52Clipboard = supportsOsc52Clipboard,
+            SupportsClipboard = supportsClipboardGet || supportsClipboardSet,
             SupportsTitleGet = true,
             SupportsTitleSet = ansiEnabled && !isOutputRedirected,
             SupportsWindowSize = !isOutputRedirected,
@@ -573,7 +584,22 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     /// <inheritdoc />
     public bool TrySetClipboardText(ReadOnlySpan<char> text)
     {
-        return UnixClipboard.TrySetText(_clipboardProvider, text);
+        if (UnixClipboard.TrySetText(_clipboardProvider, text))
+        {
+            return true;
+        }
+
+        if (_options?.EnableOsc52Clipboard != true)
+        {
+            return false;
+        }
+
+        if (!Capabilities.SupportsOsc52Clipboard || !Capabilities.AnsiEnabled || Capabilities.IsOutputRedirected)
+        {
+            return false;
+        }
+
+        return Osc52Clipboard.TrySetText(Out, text, _options.Osc52ClipboardMaxBytes);
     }
 
     /// <inheritdoc />
