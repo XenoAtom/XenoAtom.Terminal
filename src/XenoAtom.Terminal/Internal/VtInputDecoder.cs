@@ -22,7 +22,7 @@ internal sealed class VtInputDecoder : IDisposable
         _pasteBuilder = new StringBuilder(256);
     }
 
-    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events)
+    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Action<AnsiCursorPosition>? cursorPositionReport = null)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -34,6 +34,12 @@ internal sealed class VtInputDecoder : IDisposable
 
         foreach (var token in _tokens)
         {
+            if (token is CsiToken csiReport && csiReport.TryGetCursorPositionReport(out var cursorPosition))
+            {
+                cursorPositionReport?.Invoke(cursorPosition);
+                continue;
+            }
+
             if (_isInPaste)
             {
                 if (token is CsiToken csi && IsBracketedPasteEnd(csi))

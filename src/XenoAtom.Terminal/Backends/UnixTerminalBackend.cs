@@ -20,6 +20,10 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     private readonly Lock _inputLock = new();
     private readonly Lock _termiosLock = new();
     private readonly TerminalEventBroadcaster _events = new();
+    private readonly Lock _cursorPositionLock = new();
+
+    private readonly Action<AnsiCursorPosition> _cursorPositionReportHandler;
+    private TaskCompletionSource<TerminalPosition>? _cursorPositionRequest;
 
     private TerminalOptions? _options;
     private TerminalInputOptions? _inputOptions;
@@ -48,6 +52,11 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
 
     private ConsoleCancelEventHandler? _cancelKeyPressHandler;
     private bool _isCancelKeyPressHooked;
+
+    public UnixTerminalBackend()
+    {
+        _cursorPositionReportHandler = OnCursorPositionReport;
+    }
 
     /// <inheritdoc />
     public TerminalCapabilities Capabilities { get; private set; } = new TerminalCapabilities
@@ -132,7 +141,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             SupportsMouse = ansiEnabled && !isInputRedirected && !isOutputRedirected,
             SupportsBracketedPaste = ansiEnabled && !isOutputRedirected,
             SupportsRawMode = !isInputRedirected,
-            SupportsCursorPositionGet = !isOutputRedirected,
+            SupportsCursorPositionGet = ansiEnabled && !isInputRedirected && !isOutputRedirected,
             SupportsCursorPositionSet = !isOutputRedirected,
             SupportsTitleGet = true,
             SupportsTitleSet = ansiEnabled && !isOutputRedirected,
@@ -198,23 +207,197 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     /// <inheritdoc />
     public bool TryGetCursorPosition(out TerminalPosition position)
     {
-        if (Capabilities.IsOutputRedirected)
+        if (Capabilities.IsOutputRedirected || Capabilities.IsInputRedirected || !Capabilities.AnsiEnabled)
         {
             position = default;
             return false;
         }
 
+        if (IsInputRunning)
+        {
+            return TryRequestCursorPositionFromInputLoop(out position);
+        }
+
+        return TryQueryCursorPositionDirect(out position);
+    }
+
+    private void OnCursorPositionReport(AnsiCursorPosition position)
+    {
+        TaskCompletionSource<TerminalPosition>? request = null;
+        lock (_cursorPositionLock)
+        {
+            request = _cursorPositionRequest;
+            _cursorPositionRequest = null;
+        }
+
+        if (request is null)
+        {
+            return;
+        }
+
+        // CPR is 1-based.
+        request.TrySetResult(new TerminalPosition(position.Column - 1, position.Row - 1));
+    }
+
+    private bool TryRequestCursorPositionFromInputLoop(out TerminalPosition position)
+    {
+        position = default;
+
+        var tcs = new TaskCompletionSource<TerminalPosition>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_cursorPositionLock)
+        {
+            _cursorPositionRequest?.TrySetCanceled();
+            _cursorPositionRequest = tcs;
+        }
+
+        // Device Status Report (DSR): request cursor position (CPR response).
         try
         {
-            var (left, top) = Console.GetCursorPosition();
-            position = new TerminalPosition(left, top);
+            Out.Write("\x1b[6n");
+            Out.Flush();
+        }
+        catch
+        {
+            lock (_cursorPositionLock)
+            {
+                if (ReferenceEquals(_cursorPositionRequest, tcs))
+                {
+                    _cursorPositionRequest = null;
+                }
+            }
+            return false;
+        }
+
+        const int timeoutMs = 250;
+        try
+        {
+            if (!tcs.Task.Wait(timeoutMs))
+            {
+                lock (_cursorPositionLock)
+                {
+                    if (ReferenceEquals(_cursorPositionRequest, tcs))
+                    {
+                        _cursorPositionRequest = null;
+                    }
+                }
+                return false;
+            }
+
+            position = tcs.Task.Result;
             return true;
         }
         catch
         {
-            position = default;
+            lock (_cursorPositionLock)
+            {
+                if (ReferenceEquals(_cursorPositionRequest, tcs))
+                {
+                    _cursorPositionRequest = null;
+                }
+            }
             return false;
         }
+    }
+
+    private unsafe bool TryQueryCursorPositionDirect(out TerminalPosition position)
+    {
+        position = default;
+
+        using var _raw = UseRawMode(TerminalRawModeKind.CBreak);
+
+        try
+        {
+            Out.Write("\x1b[6n");
+            Out.Flush();
+        }
+        catch
+        {
+            return false;
+        }
+
+        var pollFd = new LibC.PollFd { fd = LibC.STDIN_FILENO, events = LibC.POLLIN, revents = 0 };
+
+        var state = 0;
+        var row = 0;
+        var col = 0;
+
+        var deadline = Environment.TickCount64 + 250;
+        Span<byte> bytes = stackalloc byte[128];
+        while (Environment.TickCount64 < deadline)
+        {
+            var pollResult = LibC.poll(&pollFd, 1, 50);
+            if (pollResult <= 0 || (pollFd.revents & LibC.POLLIN) == 0)
+            {
+                continue;
+            }
+
+            fixed (byte* buffer = bytes)
+            {
+                var read = LibC.read(LibC.STDIN_FILENO, buffer, (nuint)bytes.Length);
+                if (read <= 0)
+                {
+                    return false;
+                }
+
+                for (var i = 0; i < (int)read; i++)
+                {
+                    var b = bytes[i];
+                    switch (state)
+                    {
+                        case 0: // ESC
+                            if (b == 0x1B) state = 1;
+                            break;
+                        case 1: // [
+                            if (b == (byte)'[')
+                            {
+                                state = 2;
+                                row = 0;
+                                col = 0;
+                            }
+                            else
+                            {
+                                state = b == 0x1B ? 1 : 0;
+                            }
+                            break;
+                        case 2: // row digits until ;
+                            if (b is >= (byte)'0' and <= (byte)'9')
+                            {
+                                row = (row * 10) + (b - (byte)'0');
+                            }
+                            else if (b == (byte)';')
+                            {
+                                state = 3;
+                            }
+                            else
+                            {
+                                state = b == 0x1B ? 1 : 0;
+                            }
+                            break;
+                        case 3: // col digits until R
+                            if (b is >= (byte)'0' and <= (byte)'9')
+                            {
+                                col = (col * 10) + (b - (byte)'0');
+                            }
+                            else if (b == (byte)'R')
+                            {
+                                if (row >= 1 && col >= 1)
+                                {
+                                    position = new TerminalPosition(col - 1, row - 1);
+                                    return true;
+                                }
+                                state = 0;
+                            }
+                            else
+                            {
+                                state = b == 0x1B ? 1 : 0;
+                            }
+                            break;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <inheritdoc />
@@ -724,7 +907,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             if (pollResult == 0)
             {
                 // Flush pending partial sequences (notably ESC-as-a-key) after an idle period.
-                decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events);
+                decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler);
                 continue;
             }
 
@@ -754,7 +937,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                     utf8Decoder.Convert(bytes, byteOffset, byteCount - byteOffset, chars, 0, chars.Length, flush: false, out var bytesUsed, out var charsUsed, out _);
                     if (charsUsed > 0)
                     {
-                        decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events);
+                        decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events, _cursorPositionReportHandler);
                     }
 
                     if (bytesUsed <= 0)
@@ -766,7 +949,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             }
         }
 
-        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events);
+        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler);
     }
 
     private void PublishResizeIfChanged()
