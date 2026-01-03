@@ -2,6 +2,8 @@ using System.Globalization;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal;
 
+using var _session = Terminal.Open();
+
 Terminal.WriteLine("LogTerminal sample (ANSI log validation for CI)");
 Terminal.WriteLine($"Terminal: {Terminal.Capabilities.TerminalName}, Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.Capabilities.ColorLevel}, Redirected={Terminal.Capabilities.IsOutputRedirected}");
 Terminal.WriteLine();

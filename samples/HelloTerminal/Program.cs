@@ -6,7 +6,7 @@ public static class Program
 {
     public static async Task Main()
     {
-        Terminal.Initialize(options: new TerminalOptions
+        using var _session = Terminal.Open(options: new TerminalOptions
         {
             PreferUtf8Output = true,
             Prefer7BitC1 = true,
@@ -19,7 +19,8 @@ public static class Program
 
         {
             using var _cursor = Terminal.HideCursor();
-            using var _mouseMode = Terminal.EnableMouse(TerminalMouseMode.Move);
+            using var _resize = Terminal.EnableResizeEvents();
+            using var _mouse = Terminal.EnableMouseInput(TerminalMouseMode.Move);
 
             Terminal.Clear();
 
@@ -34,13 +35,6 @@ public static class Program
             Terminal.WriteLine();
 
             Terminal.WriteLine("Events:");
-
-            Terminal.StartInput(new TerminalInputOptions
-            {
-                EnableResizeEvents = true,
-                EnableMouseEvents = true,
-                MouseMode = TerminalMouseMode.Move,
-            });
 
             try
             {
@@ -64,14 +58,13 @@ public static class Program
             }
             finally
             {
-                await Terminal.StopInputAsync();
                 Terminal.WriteLine();
                 Terminal.WriteLine("Bye.");
             }
         }
 
-        Terminal.WriteLine("Press Enter to exit");
-        await Terminal.ReadLineAsync();
+        Console.WriteLine("Press Enter to exit");
+        _ = Console.ReadLine();
     }
 
     private static string FormatEvent(TerminalEvent ev)

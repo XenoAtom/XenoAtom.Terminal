@@ -17,6 +17,8 @@ namespace HelloReadLine;
 ///   <item><description>Command parsing and runtime toggling of editor options (e.g. view width, max length).</description></item>
 ///   <item><description>Tab completion for slash commands via `CompletionHandler`.</description></item>
 ///   <item><description>A custom key binding (Ctrl+O inserts a timestamp) via `KeyHandler`.</description></item>
+///   <item><description>Undo/redo (Ctrl+Z/Ctrl+Y) and reverse incremental history search (Ctrl+R).</description></item>
+///   <item><description>Customizable built-in bindings via `TerminalReadLineKeyBindings`.</description></item>
 ///   <item><description>A custom markup renderer that highlights selections, the current word, and keywords
 ///   (e.g. <c>error</c>, <c>warn</c>, <c>info</c>) while properly escaping markup brackets.</description></item>
 ///   <item><description>Writing output atomically to avoid interleaving with input rendering.</description></item>
@@ -39,7 +41,7 @@ public static class Program
 
     public static async Task Main()
     {
-        Terminal.Initialize(options: new TerminalOptions
+        using var _session = Terminal.Open(options: new TerminalOptions
         {
             PreferUtf8Output = true,
             Prefer7BitC1 = true,
@@ -51,9 +53,11 @@ public static class Program
 
         ShowHelp();
 
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, EnableResizeEvents = true, MouseMode = TerminalMouseMode.Drag });
+        using var _resize = Terminal.EnableResizeEvents();
+        using var _mouse = Terminal.EnableMouseInput(TerminalMouseMode.Drag);
 
         var promptNumber = 1;
+        var keyBindings = TerminalReadLineKeyBindings.CreateDefault();
         var options = new TerminalReadLineOptions
         {
             Echo = true,
@@ -65,66 +69,60 @@ public static class Program
             AddToHistory = true,
             EnableBracketedPaste = true,
             EnableMouseEditing = true,
+            KeyBindings = keyBindings,
             KeyHandler = HandleKey,
             CompletionHandler = Complete,
             MarkupRenderer = RenderMarkup,
         };
 
-        try
+        while (true)
         {
-            while (true)
+            var promptForThisLine = promptNumber;
+            options.PromptMarkup = () => $"[gray]{promptForThisLine,3}[/] [cyan]>[/] ";
+
+            string? line;
+            try
             {
-                var promptForThisLine = promptNumber;
-                options.PromptMarkup = () => $"[gray]{promptForThisLine,3}[/] [cyan]>[/] ";
+                line = await Terminal.ReadLineAsync(options);
+            }
+            catch (OperationCanceledException)
+            {
+                Terminal.WriteMarkupLine("[gray](canceled; press Enter to continue)[/]");
+                continue;
+            }
 
-                string? line;
-                try
-                {
-                    line = await Terminal.ReadLineAsync(options);
-                }
-                catch (OperationCanceledException)
-                {
-                    Terminal.WriteMarkupLine("[gray](canceled; press Enter to continue)[/]");
-                    continue;
-                }
+            if (line is null)
+            {
+                Terminal.WriteMarkupLine("[gray](EOF)[/]");
+                break;
+            }
 
-                if (line is null)
+            if (line.Length == 0)
+            {
+                promptNumber++;
+                continue;
+            }
+
+            if (line.StartsWith("/", StringComparison.Ordinal))
+            {
+                promptNumber++;
+                if (HandleCommand(line, options))
                 {
-                    Terminal.WriteMarkupLine("[gray](EOF)[/]");
                     break;
                 }
 
-                if (line.Length == 0)
-                {
-                    promptNumber++;
-                    continue;
-                }
-
-                if (line.StartsWith("/", StringComparison.Ordinal))
-                {
-                    promptNumber++;
-                    if (HandleCommand(line, options))
-                    {
-                        break;
-                    }
-
-                    continue;
-                }
-
-                promptNumber++;
-                Terminal.WriteAtomic(w =>
-                {
-                    w.Foreground(ConsoleColor.DarkGray);
-                    w.Write("You typed: ");
-                    w.ResetStyle();
-                    w.Write(line);
-                    w.Write("\n");
-                });
+                continue;
             }
-        }
-        finally
-        {
-            await Terminal.StopInputAsync();
+
+            promptNumber++;
+            Terminal.WriteAtomic(w =>
+            {
+                w.Foreground(ConsoleColor.DarkGray);
+                w.Write("You typed: ");
+                w.ResetStyle();
+                w.Write(line);
+                w.Write("\n");
+            });
         }
     }
 
@@ -139,8 +137,9 @@ public static class Program
                               - [cyan]Shift+Left/Right[/] selection (and [cyan]Ctrl+Shift+Left/Right[/] by word when available)
                               - [cyan]Ctrl+Left/Right[/] word movement (often [cyan]Alt+Left/Right[/] on some terminals)
                               - [cyan]Ctrl+Backspace[/] / [cyan]Ctrl+Delete[/] word delete (when available)
+                              - [cyan]Ctrl+Z/Ctrl+Y[/] undo/redo, [cyan]Ctrl+R[/] reverse search in history
                               - [cyan]Tab[/] completion for slash commands (type [gray]/he[/], then press Tab repeatedly to cycle between [gray]/help[/], [gray]/hello[/], [gray]/helium[/])
-                              - [cyan]Ctrl+C/Ctrl+X/Ctrl+V[/] copy/cut/paste (best effort)
+                              - [cyan]Ctrl+C/Ctrl+X/Ctrl+V[/] copy/cut/paste (Ctrl+C cancels when there is no selection)
                               - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
                               - [cyan]Mouse click/drag[/] sets cursor and selection (when supported)
                               - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]
