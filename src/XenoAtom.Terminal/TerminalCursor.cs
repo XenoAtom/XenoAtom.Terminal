@@ -3,6 +3,7 @@
 // See license.txt file in the project root for full license information.
 
 using XenoAtom.Ansi;
+using System.Threading.Tasks;
 
 namespace XenoAtom.Terminal;
 
@@ -46,6 +47,18 @@ public sealed class TerminalCursor
         get => _terminal.GetCursorPosition();
         set => _terminal.SetCursorPosition(value);
     }
+
+    /// <summary>
+    /// Gets the cursor position asynchronously (0-based).
+    /// </summary>
+    public ValueTask<TerminalPosition> GetPositionAsync(CancellationToken cancellationToken = default)
+        => _terminal.GetCursorPositionAsync(cancellationToken);
+
+    /// <summary>
+    /// Tries to get the cursor position asynchronously (0-based).
+    /// </summary>
+    public ValueTask<TerminalPosition?> TryGetPositionAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+        => _terminal.TryGetCursorPositionAsync(timeout, cancellationToken);
 
     /// <summary>
     /// Gets or sets whether the cursor is visible.

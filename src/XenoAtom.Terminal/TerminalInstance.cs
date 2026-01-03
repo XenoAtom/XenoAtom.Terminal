@@ -239,9 +239,43 @@ public sealed partial class TerminalInstance : IDisposable
     }
 
     /// <summary>
+    /// Gets the cursor position asynchronously (0-based).
+    /// </summary>
+    public async ValueTask<TerminalPosition> GetCursorPositionAsync(CancellationToken cancellationToken = default)
+    {
+        if (await TryGetCursorPositionAsync(timeout: null, cancellationToken).ConfigureAwait(false) is { } position)
+        {
+            return position;
+        }
+
+        if (Options.StrictMode)
+        {
+            throw new NotSupportedException("Cursor position is not supported by this backend.");
+        }
+
+        return default;
+    }
+
+    /// <summary>
     /// Tries to get the cursor position (0-based).
     /// </summary>
     public bool TryGetCursorPosition(out TerminalPosition position) => Backend.TryGetCursorPosition(out position);
+
+    /// <summary>
+    /// Tries to get the cursor position asynchronously (0-based).
+    /// </summary>
+    public ValueTask<TerminalPosition?> TryGetCursorPositionAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        if ((OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) && Backend is Backends.UnixTerminalBackend unix)
+        {
+            var timeoutMs = timeout.HasValue ? (int)Math.Clamp(timeout.Value.TotalMilliseconds, 0, int.MaxValue) : 250;
+            return unix.TryGetCursorPositionAsync(timeoutMs, cancellationToken);
+        }
+
+        return Backend.TryGetCursorPosition(out var position)
+            ? ValueTask.FromResult<TerminalPosition?>(position)
+            : ValueTask.FromResult<TerminalPosition?>(null);
+    }
 
     /// <summary>
     /// Sets the cursor position (0-based, best effort).

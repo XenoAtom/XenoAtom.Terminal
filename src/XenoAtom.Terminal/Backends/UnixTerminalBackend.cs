@@ -225,6 +225,21 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         return TryQueryCursorPositionDirect(out position);
     }
 
+    internal async ValueTask<TerminalPosition?> TryGetCursorPositionAsync(int timeoutMs, CancellationToken cancellationToken)
+    {
+        if (Capabilities.IsOutputRedirected || Capabilities.IsInputRedirected || !Capabilities.AnsiEnabled)
+        {
+            return null;
+        }
+
+        if (IsInputRunning)
+        {
+            return await RequestCursorPositionFromInputLoopAsync(timeoutMs, cancellationToken).ConfigureAwait(false);
+        }
+
+        return TryQueryCursorPositionDirect(out var position) ? position : null;
+    }
+
     private void OnCursorPositionReport(AnsiCursorPosition position)
     {
         TaskCompletionSource<TerminalPosition>? request = null;
@@ -495,6 +510,64 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     public bool TryGetClipboardText([NotNullWhen(true)] out string? text)
     {
         return UnixClipboard.TryGetText(_clipboardProvider, out text);
+    }
+
+    private async ValueTask<TerminalPosition?> RequestCursorPositionFromInputLoopAsync(int timeoutMs, CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<TerminalPosition>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_cursorPositionLock)
+        {
+            _cursorPositionRequest?.TrySetCanceled();
+            _cursorPositionRequest = tcs;
+        }
+
+        try
+        {
+            Out.Write("\x1b[6n");
+            Out.Flush();
+        }
+        catch
+        {
+            lock (_cursorPositionLock)
+            {
+                if (ReferenceEquals(_cursorPositionRequest, tcs))
+                {
+                    _cursorPositionRequest = null;
+                }
+            }
+            return null;
+        }
+
+        try
+        {
+            var delay = Task.Delay(Math.Max(0, timeoutMs), cancellationToken);
+            var completed = await Task.WhenAny(tcs.Task, delay).ConfigureAwait(false);
+            if (ReferenceEquals(completed, tcs.Task))
+            {
+                return await tcs.Task.ConfigureAwait(false);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_cursorPositionLock)
+            {
+                if (ReferenceEquals(_cursorPositionRequest, tcs))
+                {
+                    _cursorPositionRequest = null;
+                }
+            }
+            return null;
+        }
+        catch
+        {
+            lock (_cursorPositionLock)
+            {
+                if (ReferenceEquals(_cursorPositionRequest, tcs))
+                {
+                    _cursorPositionRequest = null;
+                }
+            }
+            throw;
+        }
     }
 
     /// <inheritdoc />

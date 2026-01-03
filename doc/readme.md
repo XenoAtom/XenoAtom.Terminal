@@ -198,6 +198,12 @@ Terminal.WriteLine("Top-left");
 Terminal.Cursor.Visible = true;
 ```
 
+Async position query:
+
+```csharp
+var pos = await Terminal.Cursor.GetPositionAsync();
+```
+
 Scoped cursor restore:
 
 ```csharp

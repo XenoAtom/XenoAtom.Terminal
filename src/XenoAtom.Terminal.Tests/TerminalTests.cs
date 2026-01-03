@@ -53,6 +53,19 @@ public class TerminalTests
     }
 
     [TestMethod]
+    public async Task Cursor_GetPositionAsync_ReturnsCurrentPosition()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+
+        Terminal.SetCursorPosition(3, 4);
+
+        var pos = await Terminal.Cursor.GetPositionAsync();
+        Assert.AreEqual(3, pos.Column);
+        Assert.AreEqual(4, pos.Row);
+    }
+
+    [TestMethod]
     public async Task TerminalEventBroadcaster_DefaultBuffer_IsBoundedAndDropsOldest()
     {
         var assembly = typeof(Terminal).Assembly;
