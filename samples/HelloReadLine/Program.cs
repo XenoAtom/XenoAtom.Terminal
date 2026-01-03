@@ -140,6 +140,7 @@ public static class Program
                               - [cyan]Ctrl+Left/Right[/] word movement (often [cyan]Alt+Left/Right[/] on some terminals)
                               - [cyan]Ctrl+Backspace[/] / [cyan]Ctrl+Delete[/] word delete (when available)
                               - [cyan]Tab[/] completion for slash commands (type [gray]/he[/], then press Tab repeatedly to cycle between [gray]/help[/], [gray]/hello[/], [gray]/helium[/])
+                              - [cyan]Ctrl+C/Ctrl+X/Ctrl+V[/] copy/cut/paste (best effort)
                               - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
                               - [cyan]Mouse click/drag[/] sets cursor and selection (when supported)
                               - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]

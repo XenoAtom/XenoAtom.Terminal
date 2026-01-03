@@ -17,6 +17,8 @@ public class VirtualTerminalBackend : ITerminalBackend
     private readonly TextWriter? _providedOut;
     private readonly TextWriter? _providedError;
     private readonly bool _disposeWriters;
+    private readonly object _clipboardLock = new();
+    private string? _clipboardText;
 
     private TextWriter _out = TextWriter.Null;
     private TextWriter _error = TextWriter.Null;
@@ -65,6 +67,7 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsRawMode = true,
             SupportsCursorPositionGet = true,
             SupportsCursorPositionSet = true,
+            SupportsClipboard = true,
             SupportsTitleGet = true,
             SupportsTitleSet = true,
             SupportsWindowSize = true,
@@ -192,6 +195,28 @@ public class VirtualTerminalBackend : ITerminalBackend
     }
 
     /// <inheritdoc />
+    public bool TryGetClipboardText([NotNullWhen(true)] out string? text)
+    {
+        ThrowIfDisposed();
+        lock (_clipboardLock)
+        {
+            text = _clipboardText;
+            return text is not null;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TrySetClipboardText(ReadOnlySpan<char> text)
+    {
+        ThrowIfDisposed();
+        lock (_clipboardLock)
+        {
+            _clipboardText = text.Length == 0 ? string.Empty : new string(text);
+            return true;
+        }
+    }
+
+    /// <inheritdoc />
     public void Beep()
     {
         ThrowIfDisposed();
@@ -244,6 +269,7 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsRawMode = _baseCapabilities.SupportsRawMode,
             SupportsCursorPositionGet = _baseCapabilities.SupportsCursorPositionGet,
             SupportsCursorPositionSet = _baseCapabilities.SupportsCursorPositionSet,
+            SupportsClipboard = _baseCapabilities.SupportsClipboard,
             SupportsTitleGet = _baseCapabilities.SupportsTitleGet,
             SupportsTitleSet = _baseCapabilities.SupportsTitleSet,
             SupportsWindowSize = _baseCapabilities.SupportsWindowSize,

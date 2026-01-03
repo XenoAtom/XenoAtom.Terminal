@@ -60,6 +60,11 @@ public sealed class TerminalCapabilities
     public bool SupportsCursorPositionSet { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether the system clipboard can be accessed (best effort).
+    /// </summary>
+    public bool SupportsClipboard { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether the terminal title can be retrieved.
     /// </summary>
     public bool SupportsTitleGet { get; init; }

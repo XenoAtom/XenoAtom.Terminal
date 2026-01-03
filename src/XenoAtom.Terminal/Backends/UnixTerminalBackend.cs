@@ -3,6 +3,8 @@
 // See license.txt file in the project root for full license information.
 
 using System.Runtime.Versioning;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal.Internal;
@@ -28,6 +30,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     private TerminalOptions? _options;
     private TerminalInputOptions? _inputOptions;
     private AnsiWriter _ansi = null!;
+    private ClipboardProvider _clipboardProvider;
 
     private Task? _inputTask;
     private CancellationTokenSource? _inputCts;
@@ -71,6 +74,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         SupportsRawMode = false,
         SupportsCursorPositionGet = false,
         SupportsCursorPositionSet = false,
+        SupportsClipboard = false,
         SupportsTitleGet = true,
         SupportsTitleSet = false,
         SupportsWindowSize = false,
@@ -143,6 +147,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             SupportsRawMode = !isInputRedirected,
             SupportsCursorPositionGet = ansiEnabled && !isInputRedirected && !isOutputRedirected,
             SupportsCursorPositionSet = !isOutputRedirected,
+            SupportsClipboard = DetectClipboardProvider(out _clipboardProvider),
             SupportsTitleGet = true,
             SupportsTitleSet = ansiEnabled && !isOutputRedirected,
             SupportsWindowSize = !isOutputRedirected,
@@ -485,6 +490,30 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     public void ResetColors()
     {
         // Best-effort: only used when ANSI styling is disabled.
+    }
+
+    /// <inheritdoc />
+    public bool TryGetClipboardText([NotNullWhen(true)] out string? text)
+    {
+        text = null;
+
+        if (!_clipboardProvider.IsAvailable)
+        {
+            return false;
+        }
+
+        return TryRunClipboardGet(_clipboardProvider, out text);
+    }
+
+    /// <inheritdoc />
+    public bool TrySetClipboardText(ReadOnlySpan<char> text)
+    {
+        if (!_clipboardProvider.IsAvailable)
+        {
+            return false;
+        }
+
+        return TryRunClipboardSet(_clipboardProvider, text);
     }
 
     /// <inheritdoc />
@@ -1249,6 +1278,163 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         };
 
         return Rank(a) <= Rank(b) ? a : b;
+    }
+
+    private readonly struct ClipboardProvider
+    {
+        public readonly string? GetExe;
+        public readonly string? GetArgs;
+        public readonly string? SetExe;
+        public readonly string? SetArgs;
+
+        public ClipboardProvider(string getExe, string getArgs, string setExe, string setArgs)
+        {
+            GetExe = getExe;
+            GetArgs = getArgs;
+            SetExe = setExe;
+            SetArgs = setArgs;
+        }
+
+        public bool IsAvailable => GetExe is not null && SetExe is not null;
+    }
+
+    private static bool DetectClipboardProvider(out ClipboardProvider provider)
+    {
+        provider = default;
+
+        if (OperatingSystem.IsMacOS())
+        {
+            if (TryFindInPath("pbcopy", out var pbcopy) && TryFindInPath("pbpaste", out var pbpaste))
+            {
+                provider = new ClipboardProvider(pbpaste, string.Empty, pbcopy, string.Empty);
+                return true;
+            }
+
+            if (File.Exists("/usr/bin/pbcopy") && File.Exists("/usr/bin/pbpaste"))
+            {
+                provider = new ClipboardProvider("/usr/bin/pbpaste", string.Empty, "/usr/bin/pbcopy", string.Empty);
+                return true;
+            }
+
+            return false;
+        }
+
+        var hasWayland = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+        if (hasWayland && TryFindInPath("wl-copy", out var wlCopy) && TryFindInPath("wl-paste", out var wlPaste))
+        {
+            provider = new ClipboardProvider(wlPaste, string.Empty, wlCopy, string.Empty);
+            return true;
+        }
+
+        var hasX11 = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+        if (hasX11 && TryFindInPath("xclip", out var xclip))
+        {
+            provider = new ClipboardProvider(xclip, "-selection clipboard -o", xclip, "-selection clipboard -i");
+            return true;
+        }
+
+        if (hasX11 && TryFindInPath("xsel", out var xsel))
+        {
+            provider = new ClipboardProvider(xsel, "--clipboard --output", xsel, "--clipboard --input");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryRunClipboardGet(ClipboardProvider provider, out string? text)
+    {
+        text = null;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = provider.GetExe!,
+                Arguments = provider.GetArgs ?? string.Empty,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                return false;
+            }
+
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(milliseconds: 1000);
+            if (proc.ExitCode != 0)
+            {
+                return false;
+            }
+
+            text = output;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryRunClipboardSet(ClipboardProvider provider, ReadOnlySpan<char> text)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = provider.SetExe!,
+                Arguments = provider.SetArgs ?? string.Empty,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                return false;
+            }
+
+            proc.StandardInput.Write(text);
+            proc.StandardInput.Close();
+
+            proc.WaitForExit(milliseconds: 1000);
+            return proc.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryFindInPath(string fileName, out string fullPath)
+    {
+        fullPath = string.Empty;
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        var parts = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var candidate = Path.Combine(parts[i], fileName);
+            if (File.Exists(candidate))
+            {
+                fullPath = candidate;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static unsafe void SetCc(ref LibC.termios_linux termios, int index, byte value)

@@ -71,6 +71,28 @@ public sealed class TerminalReadLineEditorTests
     }
 
     [TestMethod]
+    public async Task ReadLineAsync_CtrlCCopiesSelection_AndCtrlVPastes()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "abc" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left, Modifiers = TerminalModifiers.Shift });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left, Modifiers = TerminalModifiers.Shift });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x03', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+C
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.End });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x16', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+V
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("abcbc", await task);
+        Assert.IsTrue(Terminal.Clipboard.TryGetText(out var clip));
+        Assert.AreEqual("bc", clip);
+    }
+
+    [TestMethod]
     public async Task ReadLineAsync_Tab_CallsCompletionHandler()
     {
         var backend = new InMemoryTerminalBackend();

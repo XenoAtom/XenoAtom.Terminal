@@ -31,6 +31,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - Selection by keyboard (Shift) and **mouse click/drag**
   - History stored on the `TerminalReadLineOptions` instance (shareable, not global)
   - Completion + extensibility via **custom key/mouse handlers** (`TerminalReadLineController`)
+  - Clipboard-friendly shortcuts (**Ctrl+C/Ctrl+X/Ctrl+V**) when available
   - Styled prompt (`PromptMarkup`) + custom line rendering (`MarkupRenderer`)
 - **Scopes + state management**:
   - Reliable scopes: alternate screen, raw/cbreak mode, bracketed paste, mouse reporting, hide cursor

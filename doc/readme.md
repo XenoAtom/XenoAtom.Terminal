@@ -21,6 +21,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
   - [Style and colors (`AnsiStyle` / `AnsiColor`)](#style-and-colors-ansistyle--ansicolor)
   - [Cursor](#cursor)
   - [Window and buffer sizes](#window-and-buffer-sizes)
+  - [Clipboard](#clipboard)
 - [Input](#input)
   - [Important: do not mix Console input APIs](#important-do-not-mix-console-input-apis)
   - [Event types](#event-types)
@@ -212,6 +213,21 @@ The API mirrors `System.Console` where possible:
 - `Terminal.WindowWidth`, `Terminal.WindowHeight`
 - `Terminal.BufferWidth`, `Terminal.BufferHeight`
 - `Terminal.LargestWindowWidth`, `Terminal.LargestWindowHeight`
+
+### Clipboard
+
+Terminal provides best-effort clipboard access via `Terminal.Clipboard`:
+
+```csharp
+Terminal.Clipboard.Text = "Hello from XenoAtom.Terminal";
+var text = Terminal.Clipboard.Text;
+```
+
+Clipboard support is platform-dependent:
+
+- Windows: Win32 clipboard (`CF_UNICODETEXT`)
+- macOS: `pbcopy` / `pbpaste`
+- Linux: prefers `wl-copy` / `wl-paste` (Wayland), then `xclip` / `xsel` (X11)
 
 ## Input
 
@@ -408,7 +424,9 @@ var wordEnd = TerminalTextUtility.GetWordEnd("hello_world".AsSpan(), index: 8);
 
 ### Cancellation and newline emission
 
-- Ctrl+C cancels the editor by default (throws `OperationCanceledException`).
+- Ctrl+C copies the current selection when present; otherwise it cancels the editor (throws `OperationCanceledException`).
+- Ctrl+X cuts the selection (or the whole line when nothing is selected) to the clipboard (best effort).
+- Ctrl+V pastes clipboard text (best effort).
 - Set `EmitNewLineOnAccept = false` to accept without writing a newline.
 
 If `TerminalOptions.ImplicitStartInput` is disabled, callers must start input explicitly (e.g. `Terminal.StartInput()`) before calling `ReadLineAsync`.

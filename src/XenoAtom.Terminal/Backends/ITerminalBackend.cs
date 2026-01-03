@@ -2,6 +2,7 @@
 // Licensed under the BSD-Clause 2 license.
 // See license.txt file in the project root for full license information.
 
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using XenoAtom.Ansi;
 
@@ -90,6 +91,16 @@ public interface ITerminalBackend : IDisposable
     /// Resets foreground/background colors to defaults (best effort).
     /// </summary>
     void ResetColors();
+
+    /// <summary>
+    /// Tries to get the current clipboard text (best effort).
+    /// </summary>
+    bool TryGetClipboardText([NotNullWhen(true)] out string? text);
+
+    /// <summary>
+    /// Tries to set the clipboard text (best effort).
+    /// </summary>
+    bool TrySetClipboardText(ReadOnlySpan<char> text);
 
     /// <summary>
     /// Gets the current window size in character cells.

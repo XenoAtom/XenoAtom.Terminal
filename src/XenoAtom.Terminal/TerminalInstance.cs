@@ -44,15 +44,17 @@ public sealed partial class TerminalInstance : IDisposable
     private TerminalInputOptions? _inputOptions;
     private readonly TerminalCursor _cursor;
     private readonly TerminalWindow _window;
+    private readonly TerminalClipboard _clipboard;
     private readonly TextReader _in;
 
     private AnsiStyle _style = AnsiStyle.Default;
-    private string? _readLineClipboard;
+    private string? _readLineKillBuffer;
 
     internal TerminalInstance()
     {
         _cursor = new TerminalCursor(this);
         _window = new TerminalWindow(this);
+        _clipboard = new TerminalClipboard(this);
         _in = new TerminalTextReader(this);
     }
 
@@ -109,6 +111,11 @@ public sealed partial class TerminalInstance : IDisposable
     /// Gets window and buffer size operations.
     /// </summary>
     public TerminalWindow Window => _window;
+
+    /// <summary>
+    /// Gets clipboard operations (best effort).
+    /// </summary>
+    public TerminalClipboard Clipboard => _clipboard;
 
     /// <summary>
     /// Gets or sets the current text style (best effort).
@@ -1111,8 +1118,9 @@ public sealed partial class TerminalInstance : IDisposable
 
         var needsMouse = (options.EnableMouseEditing || options.MouseHandler is not null) && Capabilities.SupportsMouse && !Capabilities.IsOutputRedirected;
         var needsResize = options.EnableEditing && options.ViewWidth is null && !Capabilities.IsOutputRedirected;
+        var needsCtrlAsInput = Capabilities.SupportsRawMode && !Capabilities.IsInputRedirected;
 
-        if (!needsMouse && !needsResize)
+        if (!needsMouse && !needsResize && !needsCtrlAsInput)
         {
             return TerminalScope.Empty;
         }
@@ -1139,6 +1147,12 @@ public sealed partial class TerminalInstance : IDisposable
                 updated.MouseMode = TerminalMouseMode.Move;
                 changed = true;
             }
+        }
+
+        if (needsCtrlAsInput && !updated.TreatControlCAsInput)
+        {
+            updated.TreatControlCAsInput = true;
+            changed = true;
         }
 
         if (needsResize && !updated.EnableResizeEvents)

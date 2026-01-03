@@ -3,6 +3,8 @@
 // See license.txt file in the project root for full license information.
 
 using System.Text;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal.Internal;
@@ -59,6 +61,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         SupportsRawMode = false,
         SupportsCursorPositionGet = false,
         SupportsCursorPositionSet = false,
+        SupportsClipboard = false,
         SupportsTitleGet = false,
         SupportsTitleSet = false,
         SupportsWindowSize = false,
@@ -127,6 +130,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             SupportsRawMode = !isInputRedirected,
             SupportsCursorPositionGet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
             SupportsCursorPositionSet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
+            SupportsClipboard = true,
             SupportsTitleGet = true,
             SupportsTitleSet = true,
             SupportsWindowSize = !isOutputRedirected,
@@ -444,6 +448,134 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
                 throw;
             }
         }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetClipboardText([NotNullWhen(true)] out string? text)
+    {
+        text = null;
+
+        if (!TryOpenClipboard())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!Win32Clipboard.IsClipboardFormatAvailable(Win32Clipboard.CF_UNICODETEXT))
+            {
+                return false;
+            }
+
+            var handle = Win32Clipboard.GetClipboardData(Win32Clipboard.CF_UNICODETEXT);
+            if (handle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var ptr = Win32Clipboard.GlobalLock(handle);
+            if (ptr == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                text = Marshal.PtrToStringUni(ptr);
+                return text is not null;
+            }
+            finally
+            {
+                Win32Clipboard.GlobalUnlock(handle);
+            }
+        }
+        finally
+        {
+            Win32Clipboard.CloseClipboard();
+        }
+    }
+
+    /// <inheritdoc />
+    public unsafe bool TrySetClipboardText(ReadOnlySpan<char> text)
+    {
+        if (!TryOpenClipboard())
+        {
+            return false;
+        }
+
+        IntPtr hGlobal = IntPtr.Zero;
+        try
+        {
+            if (!Win32Clipboard.EmptyClipboard())
+            {
+                return false;
+            }
+
+            var bytes = checked((nuint)(text.Length + 1) * 2);
+            hGlobal = Win32Clipboard.GlobalAlloc(Win32Clipboard.GMEM_MOVEABLE | Win32Clipboard.GMEM_ZEROINIT, (UIntPtr)bytes);
+            if (hGlobal == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var ptr = Win32Clipboard.GlobalLock(hGlobal);
+            if (ptr == IntPtr.Zero)
+            {
+                Win32Clipboard.GlobalFree(hGlobal);
+                hGlobal = IntPtr.Zero;
+                return false;
+            }
+
+            try
+            {
+                fixed (char* src = text)
+                {
+                    Buffer.MemoryCopy(src, (void*)ptr, bytes, (nuint)text.Length * 2);
+                }
+
+                ((char*)ptr)[text.Length] = '\0';
+            }
+            finally
+            {
+                Win32Clipboard.GlobalUnlock(hGlobal);
+            }
+
+            var result = Win32Clipboard.SetClipboardData(Win32Clipboard.CF_UNICODETEXT, hGlobal);
+            if (result == IntPtr.Zero)
+            {
+                Win32Clipboard.GlobalFree(hGlobal);
+                hGlobal = IntPtr.Zero;
+                return false;
+            }
+
+            // Ownership transferred to the system.
+            hGlobal = IntPtr.Zero;
+            return true;
+        }
+        finally
+        {
+            if (hGlobal != IntPtr.Zero)
+            {
+                Win32Clipboard.GlobalFree(hGlobal);
+            }
+
+            Win32Clipboard.CloseClipboard();
+        }
+    }
+
+    private static bool TryOpenClipboard()
+    {
+        const int retries = 5;
+        for (var i = 0; i < retries; i++)
+        {
+            if (Win32Clipboard.OpenClipboard(IntPtr.Zero))
+            {
+                return true;
+            }
+            Thread.Sleep(5);
+        }
+
+        return false;
     }
 
     private static bool TryMapAnsiColorToConsoleColor(AnsiColor color, out ConsoleColor consoleColor)

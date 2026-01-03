@@ -85,6 +85,54 @@ public sealed partial class TerminalInstance
                         WriteAtomic(static (TextWriter w) => w.Write("\b \b"));
                     }
                     break;
+
+                case TerminalKeyEvent key when key.Modifiers.HasFlag(TerminalModifiers.Ctrl) && key.Char is { } ch:
+                    switch (ch)
+                    {
+                        case '\x03': // Ctrl+C
+                            throw new OperationCanceledException("ReadLine canceled by Ctrl+C.");
+                        case '\x16': // Ctrl+V
+                            if (Clipboard.TryGetText(out var clipboardText) && !string.IsNullOrEmpty(clipboardText))
+                            {
+                                if (AppendText(clipboardText, buffer, options))
+                                {
+                                    AddToHistoryIfEnabled(options, buffer);
+                                    return new string(CollectionsMarshal.AsSpan(buffer));
+                                }
+                            }
+                            break;
+                        case '\x18': // Ctrl+X
+                            if (buffer.Count > 0)
+                            {
+                                var span = CollectionsMarshal.AsSpan(buffer);
+                                _readLineKillBuffer = new string(span);
+                                Clipboard.TrySetText(span);
+                                buffer.Clear();
+
+                                if (options.Echo && string.IsNullOrEmpty(promptMarkup))
+                                {
+                                    WriteAtomic((TextWriter w) =>
+                                    {
+                                        w.Write('\r');
+                                        if (!string.IsNullOrEmpty(promptPlain))
+                                        {
+                                            w.Write(promptPlain);
+                                        }
+                                        for (var i = 0; i < _readLineKillBuffer.Length; i++)
+                                        {
+                                            w.Write(' ');
+                                        }
+                                        w.Write('\r');
+                                        if (!string.IsNullOrEmpty(promptPlain))
+                                        {
+                                            w.Write(promptPlain);
+                                        }
+                                    });
+                                }
+                            }
+                            break;
+                    }
+                    break;
             }
         }
 
@@ -847,15 +895,15 @@ public sealed partial class TerminalInstance
                         return true;
                     case 'd': // Alt+D: delete word right
                         controller.ClearSelection();
-                        if (controller.CursorIndex < buffer.Count)
-                        {
-                            var start = controller.CursorIndex;
-                            var end = MoveWordRight(CollectionsMarshal.AsSpan(buffer), start);
-                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
-                            controller.Remove(start, end - start);
-                            ResetHistoryNavigation();
-                            return true;
-                        }
+                            if (controller.CursorIndex < buffer.Count)
+                            {
+                                var start = controller.CursorIndex;
+                                var end = MoveWordRight(CollectionsMarshal.AsSpan(buffer), start);
+                                _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
+                                controller.Remove(start, end - start);
+                                ResetHistoryNavigation();
+                                return true;
+                            }
                         return false;
                 }
             }
@@ -903,7 +951,7 @@ public sealed partial class TerminalInstance
                     if (controller.CursorIndex < buffer.Count)
                     {
                         var start = controller.CursorIndex;
-                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer)[start..]);
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer)[start..]);
                         controller.Remove(start, buffer.Count - start);
                         ResetHistoryNavigation();
                         return true;
@@ -914,7 +962,7 @@ public sealed partial class TerminalInstance
                     if (controller.CursorIndex > 0)
                     {
                         var end = controller.CursorIndex;
-                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer)[..end]);
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer)[..end]);
                         controller.Remove(0, end);
                         controller.SetCursorIndex(0, extendSelection: false);
                         ResetHistoryNavigation();
@@ -927,7 +975,7 @@ public sealed partial class TerminalInstance
                     {
                         var end = controller.CursorIndex;
                         var start = MoveWordLeft(CollectionsMarshal.AsSpan(buffer), end);
-                        _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
+                        _readLineKillBuffer = new string(CollectionsMarshal.AsSpan(buffer).Slice(start, end - start));
                         controller.Remove(start, end - start);
                         controller.SetCursorIndex(start, extendSelection: false);
                         ResetHistoryNavigation();
@@ -937,29 +985,51 @@ public sealed partial class TerminalInstance
                 case '\x18': // Ctrl+X
                     if (buffer.Count > 0)
                     {
+                        ReadOnlySpan<char> cutSpan;
                         if (controller.HasSelection)
                         {
-                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength));
+                            cutSpan = CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength);
                             controller.DeleteSelection();
                         }
                         else
                         {
-                            _readLineClipboard = new string(CollectionsMarshal.AsSpan(buffer));
+                            cutSpan = CollectionsMarshal.AsSpan(buffer);
                             controller.Clear();
                         }
+                        _readLineKillBuffer = cutSpan.Length == 0 ? string.Empty : new string(cutSpan);
+                        Clipboard.TrySetText(cutSpan);
                         ResetHistoryNavigation();
                         return true;
                     }
                     return false;
                 case '\x16': // Ctrl+V
-                    if (!string.IsNullOrEmpty(_readLineClipboard))
+                    if (Clipboard.TryGetText(out var clipboardText) && !string.IsNullOrEmpty(clipboardText))
                     {
-                        controller.Insert(_readLineClipboard.AsSpan());
-                        ResetHistoryNavigation();
+                        if (InsertText(clipboardText.AsSpan(), out _))
+                        {
+                            controller.Accept();
+                        }
                         return true;
                     }
+
+                    if (!string.IsNullOrEmpty(_readLineKillBuffer))
+                    {
+                        if (InsertText(_readLineKillBuffer.AsSpan(), out _))
+                        {
+                            controller.Accept();
+                        }
+                        return true;
+                    }
+
                     return false;
                 case '\x03': // Ctrl+C
+                    if (controller.HasSelection)
+                    {
+                        var selection = CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength);
+                        _readLineKillBuffer = selection.Length == 0 ? string.Empty : new string(selection);
+                        Clipboard.TrySetText(selection);
+                        return true;
+                    }
                     throw new OperationCanceledException("ReadLine canceled by Ctrl+C.");
                 case '\x0C': // Ctrl+L
                     Clear(TerminalClearKind.Screen);
