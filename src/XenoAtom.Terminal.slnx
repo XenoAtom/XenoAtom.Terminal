@@ -18,6 +18,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="../samples/HelloTerminal/HelloTerminal.csproj" />
+    <Project Path="../samples/HelloReadLine/HelloReadLine.csproj" />
     <Project Path="../samples/LogTerminal/LogTerminal.csproj" />
   </Folder>
 </Solution>

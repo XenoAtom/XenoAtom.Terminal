@@ -20,9 +20,10 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 
 - Modern `System.Console` replacement (same “feel”, more capabilities)
 - Unified input events for TUIs: keys, text, mouse, resize, signals
-- Rich output: ANSI styling + markup rendering (powered by [XenoAtom.Ansi](https://github.com/XenoAtom/XenoAtom.Ansi))
+- Rich output: ANSI styling + markup rendering (powered by XenoAtom.Ansi)
 - Thread-safe output: serialized writers to avoid interleaved escape sequences
 - Atomic writes: build multi-step output without tearing between threads
+- Interactive `ReadLine`: editing, selection, history, completion (best effort)
 - Portable terminal state: style/colors/decorations, title, cursor, window size (best effort)
 - Reliable scopes: alternate screen, raw/cbreak mode, mouse reporting, bracketed paste, hide cursor
 - CI-friendly: detects popular CI terminals and keeps colors when output is redirected
@@ -41,6 +42,7 @@ For more details on how to use XenoAtom.Terminal, please visit the [user guide](
 ## Sample
 
 - `samples/HelloTerminal` prints all input events (key/mouse/resize/text/signal) and demonstrates scopes.
+- `samples/HelloReadLine` demonstrates the interactive `ReadLine` editor (history, selection, completion, and markup rendering).
 - `samples/LogTerminal` prints colored pseudo log lines (timestamp/level/category/message) and is run in CI to validate ANSI output.
 
 ## License

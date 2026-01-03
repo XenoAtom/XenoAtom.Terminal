@@ -42,6 +42,7 @@ public sealed partial class TerminalInstance : IDisposable
     private readonly TextReader _in;
 
     private AnsiStyle _style = AnsiStyle.Default;
+    private string? _readLineClipboard;
 
     internal TerminalInstance()
     {
@@ -1076,118 +1077,14 @@ public sealed partial class TerminalInstance : IDisposable
         }
 
         using var _noEchoScope = SetInputEcho(enabled: false);
+        using var _pasteScope = options.EnableBracketedPaste ? EnableBracketedPaste() : TerminalScope.Empty;
 
-        var buffer = new List<char>(64);
-
-        while (true)
+        if (!options.EnableEditing || Capabilities.IsOutputRedirected || !Capabilities.SupportsCursorPositionSet)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            TerminalEvent ev;
-            try
-            {
-                ev = await ReadEventAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (System.Threading.Channels.ChannelClosedException)
-            {
-                return null;
-            }
-
-            switch (ev)
-            {
-                case TerminalSignalEvent when options.CancelOnSignal:
-                    throw new OperationCanceledException("ReadLine interrupted by terminal signal.");
-
-                case TerminalPasteEvent paste:
-                    if (!string.IsNullOrEmpty(paste.Text))
-                    {
-                        if (AppendText(paste.Text, buffer, options.Echo))
-                        {
-                            return new string(CollectionsMarshal.AsSpan(buffer));
-                        }
-                    }
-                    break;
-
-                case TerminalTextEvent text:
-                    if (!string.IsNullOrEmpty(text.Text))
-                    {
-                        if (AppendText(text.Text, buffer, options.Echo))
-                        {
-                            return new string(CollectionsMarshal.AsSpan(buffer));
-                        }
-                    }
-                    break;
-
-                case TerminalKeyEvent { Key: TerminalKey.Enter }:
-                    if (options.Echo)
-                    {
-                        WriteLine();
-                    }
-                    return new string(CollectionsMarshal.AsSpan(buffer));
-
-                case TerminalKeyEvent { Key: TerminalKey.Backspace }:
-                    if (RemoveLastRune(buffer) && options.Echo)
-                    {
-                        WriteAtomic(static (TextWriter w) => w.Write("\b \b"));
-                    }
-                    break;
-            }
+            return await ReadLineSimpleAsync(options, cancellationToken).ConfigureAwait(false);
         }
 
-        bool AppendText(string text, List<char> buffer, bool echo)
-        {
-            var completed = false;
-            foreach (var ch in text)
-            {
-                if (ch == '\r' || ch == '\n')
-                {
-                    completed = true;
-                    break;
-                }
-                buffer.Add(ch);
-            }
-
-            if (echo)
-            {
-                WriteAtomic((TextWriter w) =>
-                {
-                    foreach (var ch in text)
-                    {
-                        if (ch == '\r' || ch == '\n')
-                        {
-                            break;
-                        }
-                        w.Write(ch);
-                    }
-                });
-                if (completed)
-                {
-                    WriteLine();
-                }
-            }
-
-            return completed;
-        }
-
-        static bool RemoveLastRune(List<char> buffer)
-        {
-            if (buffer.Count == 0)
-            {
-                return false;
-            }
-
-            var lastIndex = buffer.Count - 1;
-            var last = buffer[lastIndex];
-            if (char.IsLowSurrogate(last) && lastIndex > 0 && char.IsHighSurrogate(buffer[lastIndex - 1]))
-            {
-                buffer.RemoveAt(lastIndex);
-                buffer.RemoveAt(lastIndex - 1);
-                return true;
-            }
-
-            buffer.RemoveAt(lastIndex);
-            return true;
-        }
+        return await ReadLineEditorAsync(options, cancellationToken).ConfigureAwait(false);
     }
 
     private static TerminalInputOptions CopyInputOptions(TerminalInputOptions options)

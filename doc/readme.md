@@ -147,11 +147,52 @@ Terminal.TreatControlCAsInput = true;
 
 ## ReadLine
 
-`Terminal.ReadLineAsync(...)` is a minimal line-oriented reader built on the terminal event stream (so apps don't need `Console.ReadLine`):
+`Terminal.ReadLineAsync(...)` is built on the terminal event stream (so apps don't need `Console.ReadLine`).
+
+When supported (interactive output + cursor positioning), it provides an in-terminal line editor by default:
+
+- Left/Right cursor movement, mid-line insert/delete
+- Up/Down history navigation
+- Shift+Left/Right selection, Ctrl+Shift+Left/Right selection by word (when modifiers are available)
+- Ctrl+Left/Right (or Alt+Left/Right) word movement (when modifiers are available)
+- Ctrl+Backspace/Ctrl+Delete word delete (when modifiers are available)
+- Common Ctrl bindings (e.g. Ctrl+A/E, Ctrl+K/U, Ctrl+X/V, Ctrl+C to cancel)
+- Optional fixed-width view with ellipsis when the text does not fit
 
 ```csharp
 Terminal.StartInput();
 var name = await Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = true });
+```
+
+You can customize behavior via `TerminalReadLineOptions`:
+
+```csharp
+var line = await Terminal.ReadLineAsync(new TerminalReadLineOptions
+{
+    PromptMarkup = () => "[gray]1[/] [darkgray]>[/] ",
+    ViewWidth = 40,
+    EmitNewLineOnAccept = true,
+    CompletionHandler = static (text, cursor, selectionStart, selectionLength) => new TerminalReadLineCompletion
+    {
+        Handled = true,
+        InsertText = "completion",
+    },
+});
+```
+
+Use `Prompt` for plain text prompts, or `PromptMarkup` to render a styled prompt (markup) in the interactive editor.
+
+History is stored on the `TerminalReadLineOptions` instance (not globally on the terminal). Reuse the same options object to keep history:
+
+```csharp
+Terminal.StartInput();
+var options = new TerminalReadLineOptions { PromptMarkup = () => "[darkgray]>[/] ", Echo = true };
+while (true)
+{
+    var line = await Terminal.ReadLineAsync(options);
+    if (line is null || line.Length == 0) break;
+    Terminal.WriteLine($"You typed: {line}");
+}
 ```
 
 If `TerminalOptions.ImplicitStartInput` is disabled, callers must start input explicitly (e.g. `Terminal.StartInput()`) before calling `ReadLineAsync`.
@@ -189,4 +230,5 @@ var output = backend.GetOutText();
 ## Samples
 
 - `samples/HelloTerminal` demonstrates input events and common terminal scopes.
+- `samples/HelloReadLine` demonstrates the interactive `ReadLine` editor (history, selection, completion, and markup rendering).
 - `samples/LogTerminal` prints a colored pseudo log and is used in CI to validate ANSI rendering in logs.
