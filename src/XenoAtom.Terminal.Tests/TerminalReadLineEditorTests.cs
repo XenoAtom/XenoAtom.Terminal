@@ -21,7 +21,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -39,7 +39,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var bindings = TerminalReadLineKeyBindings.CreateDefault();
         bindings.Bind(TerminalKey.Left, TerminalModifiers.None, TerminalReadLineCommand.Ignore);
@@ -60,7 +60,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var snapshots = new List<string>();
         var options = new TerminalReadLineOptions
@@ -96,7 +96,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var options = new TerminalReadLineOptions { Echo = false, EnableEditing = true, EnableHistory = true };
         options.History.Add("first", options.HistoryCapacity);
@@ -117,7 +117,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var options = new TerminalReadLineOptions { Echo = false, EnableEditing = true, EnableHistory = true };
 
@@ -137,7 +137,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -154,7 +154,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -176,7 +176,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var options = new TerminalReadLineOptions
         {
@@ -202,7 +202,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var calls = 0;
         var options = new TerminalReadLineOptions
@@ -247,7 +247,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var calls = 0;
         var options = new TerminalReadLineOptions
@@ -296,7 +296,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend(initialSize: new TerminalSize(10, 5));
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var options = new TerminalReadLineOptions
         {
@@ -319,7 +319,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -336,7 +336,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -353,7 +353,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -370,7 +370,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -386,7 +386,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
@@ -403,7 +403,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var options = new TerminalReadLineOptions
         {
@@ -433,7 +433,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, EnableResizeEvents = false, MouseMode = TerminalMouseMode.Drag });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Drag });
 
         var options = new TerminalReadLineOptions
         {
@@ -459,7 +459,7 @@ public sealed class TerminalReadLineEditorTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, EnableResizeEvents = false, MouseMode = TerminalMouseMode.Drag });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Drag });
 
         var options = new TerminalReadLineOptions
         {
@@ -490,7 +490,7 @@ public sealed class TerminalReadLineEditorTests
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
         Terminal.Cursor.Visible = false;
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = true, EnableEditing = true }).AsTask();
         backend.PushEvent(new TerminalTextEvent { Text = "abc" });

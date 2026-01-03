@@ -261,21 +261,22 @@ On Windows, ConPTY-based terminals (Windows Terminal, VS Code terminal, etc.) ca
 This is enabled automatically when detected. If needed, you can override it via `TerminalOptions.WindowsVtInputDecoder`.
 
 ```csharp
-Terminal.StartInput(new TerminalInputOptions
-{
-    EnableResizeEvents = true,
-    EnableMouseEvents = true,
-    MouseMode = TerminalMouseMode.Drag,
-});
+// Resize events are published automatically when supported.
+// Mouse and bracketed paste are opt-in because enabling them can change terminal behavior (selection/paste semantics).
+using var _mouse = Terminal.EnableMouseInput(TerminalMouseMode.Drag);
+using var _paste = Terminal.EnableBracketedPasteInput();
 
 await foreach (var ev in Terminal.ReadEventsAsync())
 {
     if (ev is TerminalKeyEvent { Key: TerminalKey.Escape })
         break;
 }
-
-await Terminal.StopInputAsync();
 ```
+
+### Why mouse and bracketed paste are opt-in
+
+- Mouse reporting can disable the terminal's own selection UI (and on Windows console it disables Quick Edit), so apps should enable it only when needed.
+- Bracketed paste changes how pasted text is delivered (as `TerminalPasteEvent` instead of regular text), which not all apps want.
 
 ### Important: do not mix Console input APIs
 
@@ -517,7 +518,7 @@ using XenoAtom.Terminal.Backends;
 
 var backend = new InMemoryTerminalBackend();
 Terminal.Initialize(backend);
-Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false });
 
 var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false }).AsTask();
 backend.PushEvent(new TerminalTextEvent { Text = "abc" });

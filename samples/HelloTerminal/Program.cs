@@ -19,7 +19,6 @@ public static class Program
 
         {
             using var _cursor = Terminal.HideCursor();
-            using var _resize = Terminal.EnableResizeEvents();
             using var _mouse = Terminal.EnableMouseInput(TerminalMouseMode.Move);
 
             Terminal.Clear();

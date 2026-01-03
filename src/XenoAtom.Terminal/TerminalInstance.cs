@@ -868,12 +868,13 @@ public sealed partial class TerminalInstance : IDisposable
     }
 
     /// <summary>
-    /// Enables resize events by ensuring the input loop is running with resize events enabled.
+    /// Enables resize events.
     /// </summary>
     /// <returns>A scope that restores the previous state on dispose.</returns>
+    [Obsolete("Resize events are always published when supported; this method is no longer needed.")]
     public TerminalScope EnableResizeEvents()
     {
-        return UseInputOptionsScope(options => options.EnableResizeEvents = true);
+        return TerminalScope.Empty;
     }
 
     /// <summary>
@@ -1260,10 +1261,9 @@ public sealed partial class TerminalInstance : IDisposable
         }
 
         var needsMouse = (options.EnableMouseEditing || options.MouseHandler is not null) && Capabilities.SupportsMouse && !Capabilities.IsOutputRedirected;
-        var needsResize = options.EnableEditing && options.ViewWidth is null && !Capabilities.IsOutputRedirected;
         var needsCtrlAsInput = Capabilities.SupportsRawMode && !Capabilities.IsInputRedirected;
 
-        if (!needsMouse && !needsResize && !needsCtrlAsInput)
+        if (!needsMouse && !needsCtrlAsInput)
         {
             return TerminalScope.Empty;
         }
@@ -1298,12 +1298,6 @@ public sealed partial class TerminalInstance : IDisposable
             changed = true;
         }
 
-        if (needsResize && !updated.EnableResizeEvents)
-        {
-            updated.EnableResizeEvents = true;
-            changed = true;
-        }
-
         if (!changed)
         {
             return TerminalScope.Empty;
@@ -1332,7 +1326,6 @@ public sealed partial class TerminalInstance : IDisposable
     {
         return new TerminalInputOptions
         {
-            EnableResizeEvents = options.EnableResizeEvents,
             EnableMouseEvents = options.EnableMouseEvents,
             MouseMode = options.MouseMode,
             TreatControlCAsInput = options.TreatControlCAsInput,
@@ -1345,9 +1338,8 @@ public sealed partial class TerminalInstance : IDisposable
     {
         var options = new TerminalInputOptions
         {
-            EnableResizeEvents = true,
-            EnableMouseEvents = true,
-            MouseMode = TerminalMouseMode.Drag,
+            EnableMouseEvents = false,
+            MouseMode = TerminalMouseMode.Off,
             TreatControlCAsInput = Options.TreatControlCAsInput,
             CaptureCtrlC = true,
             CaptureCtrlBreak = true,
@@ -1376,7 +1368,6 @@ public sealed partial class TerminalInstance : IDisposable
 
         return ev switch
         {
-            TerminalResizeEvent => options.EnableResizeEvents,
             TerminalMouseEvent mouse => ShouldPublishMouseEvent(mouse, options),
             _ => true,
         };

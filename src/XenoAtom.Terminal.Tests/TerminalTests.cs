@@ -133,7 +133,7 @@ public class TerminalTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false, MouseMode = TerminalMouseMode.Off });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         using (Terminal.EnableMouseInput(TerminalMouseMode.Clicks))
         {
@@ -158,32 +158,15 @@ public class TerminalTests
     }
 
     [TestMethod]
-    public async Task EnableResizeEvents_OverridesResizeFiltering_AndRestores()
+    public async Task ResizeEvents_AreAlwaysPublished_EvenIfDisabledInInputOptions()
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
-        using (Terminal.EnableResizeEvents())
-        {
-            var task = Terminal.ReadEventAsync().AsTask();
-            backend.PushEvent(new TerminalResizeEvent { Size = new TerminalSize(123, 45) });
-            var ev = await task;
-            Assert.AreEqual(123, ((TerminalResizeEvent)ev).Size.Columns);
-        }
-
-        using var cts = new CancellationTokenSource(50);
-        var filtered = Terminal.ReadEventAsync(cts.Token).AsTask();
         backend.PushEvent(new TerminalResizeEvent { Size = new TerminalSize(123, 45) });
-
-        try
-        {
-            await filtered;
-            Assert.Fail("Expected OperationCanceledException");
-        }
-        catch (OperationCanceledException)
-        {
-        }
+        var ev = await Terminal.ReadEventAsync();
+        Assert.AreEqual(123, ((TerminalResizeEvent)ev).Size.Columns);
     }
 
     [TestMethod]
@@ -234,22 +217,14 @@ public class TerminalTests
     }
 
     [TestMethod]
-    public async Task ReadEventAsync_FiltersResize_WhenDisabled()
+    public async Task ReadEventAsync_ReturnsResizeEvent_WhenPushed()
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableResizeEvents = false });
-
-        var task = Terminal.ReadEventAsync().AsTask();
-
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
         backend.PushEvent(new TerminalResizeEvent { Size = new TerminalSize(100, 40) });
-        await Task.Delay(20);
-        Assert.IsFalse(task.IsCompleted);
-
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
-
-        var ev = await task;
-        Assert.IsInstanceOfType(ev, typeof(TerminalKeyEvent));
+        var ev = await Terminal.ReadEventAsync();
+        Assert.AreEqual(100, ((TerminalResizeEvent)ev).Size.Columns);
     }
 
     [TestMethod]
@@ -360,7 +335,7 @@ public class TerminalTests
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
 
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
         Assert.IsFalse(Terminal.KeyAvailable);
 
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = 'x' });
@@ -442,7 +417,7 @@ public class TerminalTests
     {
         var backend = new InMemoryTerminalBackend();
         Terminal.Initialize(backend);
-        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
 
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = 'a' });
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });

@@ -1043,10 +1043,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (_inputOptions?.EnableResizeEvents == true)
-            {
-                PublishResizeIfChanged();
-            }
+            PublishResizeIfChanged();
 
             var pollResult = LibC.poll(&pollFd, 1, 50);
             if (pollResult == 0)

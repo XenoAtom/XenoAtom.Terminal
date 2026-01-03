@@ -1176,10 +1176,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         desiredMode |= Win32Console.ENABLE_EXTENDED_FLAGS;
         desiredMode &= ~Win32Console.ENABLE_QUICK_EDIT_MODE;
 
-        if (_inputOptions?.EnableResizeEvents == true)
-        {
-            desiredMode |= Win32Console.ENABLE_WINDOW_INPUT;
-        }
+        desiredMode |= Win32Console.ENABLE_WINDOW_INPUT;
 
         if (_inputOptions?.EnableMouseEvents == true)
         {
@@ -1223,10 +1220,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
                 }
                 break;
             case Win32Console.WINDOW_BUFFER_SIZE_EVENT:
-                if (_inputOptions?.EnableResizeEvents == true)
-                {
-                    HandleResize(record.Event.WindowBufferSizeEvent);
-                }
+                HandleResize(record.Event.WindowBufferSizeEvent);
                 break;
         }
     }

@@ -12,17 +12,18 @@ public sealed class TerminalInputOptions
     /// <summary>
     /// Enables publishing <see cref="TerminalResizeEvent"/> events when the terminal size changes.
     /// </summary>
+    [Obsolete("Resize events are always published when supported; this option is no longer needed.")]
     public bool EnableResizeEvents { get; set; } = true;
 
     /// <summary>
     /// Enables publishing <see cref="TerminalMouseEvent"/> events.
     /// </summary>
-    public bool EnableMouseEvents { get; set; } = true;
+    public bool EnableMouseEvents { get; set; }
 
     /// <summary>
     /// Selects the level of mouse reporting to enable when mouse events are enabled.
     /// </summary>
-    public TerminalMouseMode MouseMode { get; set; } = TerminalMouseMode.Drag;
+    public TerminalMouseMode MouseMode { get; set; } = TerminalMouseMode.Off;
 
     /// <summary>
     /// When enabled, Ctrl+C / Ctrl+Break are treated as regular key input (best effort) instead of terminal signals.

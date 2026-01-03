@@ -53,7 +53,6 @@ public static class Program
 
         ShowHelp();
 
-        using var _resize = Terminal.EnableResizeEvents();
         using var _mouse = Terminal.EnableMouseInput(TerminalMouseMode.Drag);
 
         var promptNumber = 1;
