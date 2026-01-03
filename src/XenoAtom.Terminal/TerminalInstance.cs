@@ -868,16 +868,6 @@ public sealed partial class TerminalInstance : IDisposable
     }
 
     /// <summary>
-    /// Enables resize events.
-    /// </summary>
-    /// <returns>A scope that restores the previous state on dispose.</returns>
-    [Obsolete("Resize events are always published when supported; this method is no longer needed.")]
-    public TerminalScope EnableResizeEvents()
-    {
-        return TerminalScope.Empty;
-    }
-
-    /// <summary>
     /// Enables bracketed paste within a scope and restores the previous state when disposed (best effort).
     /// </summary>
     /// <returns>A scope that restores the previous state on dispose.</returns>

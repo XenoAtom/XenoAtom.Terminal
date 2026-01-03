@@ -356,14 +356,6 @@ public static partial class Terminal
     /// <inheritdoc cref="TerminalInstance.EnableMouseInput" />
     public static TerminalScope EnableMouseInput(TerminalMouseMode mode = TerminalMouseMode.Drag) => Instance.EnableMouseInput(mode);
 
-    /// <summary>
-    /// Enables resize events.
-    /// </summary>
-    /// <remarks>
-    /// Resize events are always published when supported; this method is retained for compatibility and is a no-op.
-    /// </remarks>
-    [Obsolete("Resize events are always published when supported; this method is no longer needed.")]
-    public static TerminalScope EnableResizeEvents() => TerminalScope.Empty;
 
     /// <inheritdoc cref="TerminalInstance.EnableBracketedPaste" />
     public static TerminalScope EnableBracketedPaste() => Instance.EnableBracketedPaste();

@@ -10,12 +10,6 @@ namespace XenoAtom.Terminal;
 public sealed class TerminalInputOptions
 {
     /// <summary>
-    /// Enables publishing <see cref="TerminalResizeEvent"/> events when the terminal size changes.
-    /// </summary>
-    [Obsolete("Resize events are always published when supported; this option is no longer needed.")]
-    public bool EnableResizeEvents { get; set; } = true;
-
-    /// <summary>
     /// Enables publishing <see cref="TerminalMouseEvent"/> events.
     /// </summary>
     public bool EnableMouseEvents { get; set; }
