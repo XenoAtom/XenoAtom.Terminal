@@ -18,7 +18,7 @@ namespace XenoAtom.Terminal.Backends;
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 {
-    private readonly object _inputLock = new();
+    private readonly Lock _inputLock = new();
     private readonly TerminalEventBroadcaster _events = new();
     private readonly bool[] _keyDown = new bool[256];
 
@@ -116,17 +116,19 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         var ansiEnabled = options.ForceAnsi || (!isOutputRedirected && TryEnableVirtualTerminalOutput());
 
         _useVtInputDecoder = false;
-        if (!isInputRedirected && !IsInvalidHandle(_inputHandle) && options.WindowsVtInputDecoder != TerminalWindowsVtInputDecoderMode.Disabled)
+        if (!isInputRedirected && !IsInvalidHandle(_inputHandle))
         {
-            var likelyConPty = options.WindowsVtInputDecoder == TerminalWindowsVtInputDecoderMode.Enabled
-                               || TerminalWindowsVtInputDetection.IsLikelyConPtyHost();
-            if (likelyConPty)
+            switch (options.WindowsVtInputDecoder)
             {
-                _useVtInputDecoder = TryEnableVirtualTerminalInput();
-            }
-            else if (Win32Console.GetConsoleMode(_inputHandle, out var inputMode) && (inputMode & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
-            {
-                _useVtInputDecoder = true;
+                case TerminalWindowsVtInputDecoderMode.Enabled:
+                    _useVtInputDecoder = TryEnableVirtualTerminalInput();
+                    break;
+                case TerminalWindowsVtInputDecoderMode.Auto:
+                    if (Win32Console.GetConsoleMode(_inputHandle, out var inputMode) && (inputMode & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
+                    {
+                        _useVtInputDecoder = true;
+                    }
+                    break;
             }
         }
 

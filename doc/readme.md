@@ -257,8 +257,8 @@ await Terminal.Clipboard.TrySetTextAsync("Hello".AsMemory(), timeoutMs: 500);
 
 XenoAtom.Terminal uses a single unified event stream for input. This is the preferred API for TUIs.
 
-On Windows, ConPTY-based terminals (Windows Terminal, VS Code terminal, etc.) can deliver mouse input as ANSI/VT sequences.
-This is enabled automatically when detected. If needed, you can override it via `TerminalOptions.WindowsVtInputDecoder`.
+On Windows, some hosts can deliver input as ANSI/VT sequences when the console input mode enables `ENABLE_VIRTUAL_TERMINAL_INPUT`.
+Terminal will only use the VT decoder when that flag is enabled (or if you request enabling it via `TerminalOptions.WindowsVtInputDecoder`).
 
 ```csharp
 // Resize events are published automatically when supported.
@@ -491,7 +491,7 @@ Some operations depend on the current backend and host terminal; unsupported ope
 | Clipboard on Linux does nothing | No clipboard provider installed or no GUI session | Install `wl-copy`/`wl-paste` (Wayland) or `xclip`/`xsel` (X11). |
 | Clipboard set doesn’t work over SSH | No local system clipboard | Enable OSC 52 fallback (`TerminalOptions.EnableOsc52Clipboard`, enabled by default) and use a terminal that supports it. |
 | Mouse works in `HelloTerminal` but not in `ReadLine` | Mouse editing is opt-in | Set `EnableMouseEditing = true` in `TerminalReadLineOptions` (and enable mouse reporting). |
-| Windows mouse doesn’t work in some terminals | ConPTY terminals deliver mouse as VT sequences | Leave `TerminalOptions.WindowsVtInputDecoder = Auto` or force `Enabled` if needed. |
+| Windows mouse doesn’t work in some terminals | The host may require VT input mode for certain sequences | Set `TerminalOptions.WindowsVtInputDecoder = Enabled`. |
 | Unexpected input when mixing with `Console.*` | `Console.ReadLine/ReadKey` consumes the same stream | When input is running, use `Terminal.ReadEventsAsync`/`ReadLineAsync` instead of `Console.*`. |
 
 ## Scopes

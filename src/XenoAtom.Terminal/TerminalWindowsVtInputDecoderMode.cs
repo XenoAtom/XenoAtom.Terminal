@@ -5,17 +5,17 @@
 namespace XenoAtom.Terminal;
 
 /// <summary>
-/// Controls whether the Windows backend uses a VT (ANSI) input decoder for key/mouse sequences (ConPTY-style input).
+/// Controls whether the Windows backend uses a VT (ANSI) input decoder for ANSI/VT escape sequences.
 /// </summary>
 public enum TerminalWindowsVtInputDecoderMode
 {
     /// <summary>
-    /// Enables VT input decoding when a ConPTY-style host is detected (e.g. Windows Terminal, VS Code terminal).
+    /// Enables VT input decoding only when the console input mode already has <c>ENABLE_VIRTUAL_TERMINAL_INPUT</c> set.
     /// </summary>
     Auto,
 
     /// <summary>
-    /// Always enables VT input decoding when possible.
+    /// Requests enabling <c>ENABLE_VIRTUAL_TERMINAL_INPUT</c> and uses VT input decoding when possible.
     /// </summary>
     Enabled,
 
@@ -24,4 +24,3 @@ public enum TerminalWindowsVtInputDecoderMode
     /// </summary>
     Disabled,
 }
-

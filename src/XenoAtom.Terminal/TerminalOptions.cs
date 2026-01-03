@@ -67,8 +67,11 @@ public sealed class TerminalOptions
     public TerminalColorLevel PreferredColorLevel { get; set; } = TerminalColorLevel.TrueColor;
 
     /// <summary>
-    /// Controls whether the Windows backend uses a VT input decoder for ConPTY-style input (mouse sequences, etc.).
+    /// Controls whether the Windows backend uses a VT input decoder for ANSI/VT sequences.
     /// </summary>
+    /// <remarks>
+    /// VT sequences are only produced for console input when <c>ENABLE_VIRTUAL_TERMINAL_INPUT</c> is enabled on the input handle.
+    /// </remarks>
     public TerminalWindowsVtInputDecoderMode WindowsVtInputDecoder { get; set; } = TerminalWindowsVtInputDecoderMode.Auto;
 }
 
