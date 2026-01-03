@@ -32,7 +32,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
     private Task? _inputTask;
     private CancellationTokenSource? _inputCts;
 
-    private readonly bool _useVtInputDecoder = Environment.GetEnvironmentVariable("WT_SESSION") is not null;
+    private bool _useVtInputDecoder;
     private readonly int[] _vtMouseModeCounts = new int[4];
     private TerminalMouseMode _vtMouseMode;
 
@@ -115,6 +115,21 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
         var ansiEnabled = options.ForceAnsi || (!isOutputRedirected && TryEnableVirtualTerminalOutput());
 
+        _useVtInputDecoder = false;
+        if (!isInputRedirected && !IsInvalidHandle(_inputHandle) && options.WindowsVtInputDecoder != TerminalWindowsVtInputDecoderMode.Disabled)
+        {
+            var likelyConPty = options.WindowsVtInputDecoder == TerminalWindowsVtInputDecoderMode.Enabled
+                               || TerminalWindowsVtInputDetection.IsLikelyConPtyHost();
+            if (likelyConPty)
+            {
+                _useVtInputDecoder = TryEnableVirtualTerminalInput();
+            }
+            else if (Win32Console.GetConsoleMode(_inputHandle, out var inputMode) && (inputMode & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
+            {
+                _useVtInputDecoder = true;
+            }
+        }
+
         var colorLevel = ansiEnabled ? options.PreferredColorLevel : TerminalColorLevel.None;
         if (options.RespectNoColor && !options.ForceAnsi && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR")))
         {
@@ -145,10 +160,57 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             SupportsBeep = true,
             IsOutputRedirected = isOutputRedirected,
             IsInputRedirected = isInputRedirected,
-            TerminalName = Environment.GetEnvironmentVariable("WT_SESSION") is not null ? "WindowsTerminal" : "Windows",
+            TerminalName = DetectTerminalName(),
         };
 
         _ansi = new AnsiWriter(Out, TerminalAnsiCapabilities.Create(Capabilities, options));
+    }
+
+    private bool TryEnableVirtualTerminalInput()
+    {
+        if (IsInvalidHandle(_inputHandle))
+        {
+            return false;
+        }
+
+        if (!Win32Console.GetConsoleMode(_inputHandle, out var mode))
+        {
+            return false;
+        }
+
+        if ((mode & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
+        {
+            return true;
+        }
+
+        var desired = mode | Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT;
+        if (!Win32Console.SetConsoleMode(_inputHandle, desired))
+        {
+            return false;
+        }
+
+        return Win32Console.GetConsoleMode(_inputHandle, out var after) && (after & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0;
+    }
+
+    private static string DetectTerminalName()
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION")))
+        {
+            return "WindowsTerminal";
+        }
+
+        var termProgram = Environment.GetEnvironmentVariable("TERM_PROGRAM");
+        if (!string.IsNullOrEmpty(termProgram))
+        {
+            if (string.Equals(termProgram, "vscode", StringComparison.OrdinalIgnoreCase))
+            {
+                return "VSCode";
+            }
+
+            return termProgram;
+        }
+
+        return "Windows";
     }
 
     /// <inheritdoc />
@@ -1133,6 +1195,15 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         else
         {
             desiredMode &= ~Win32Console.ENABLE_MOUSE_INPUT;
+        }
+
+        if (_useVtInputDecoder)
+        {
+            desiredMode |= Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT;
+        }
+        else
+        {
+            desiredMode &= ~Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT;
         }
 
         Win32Console.SetConsoleMode(_inputHandle, desiredMode);

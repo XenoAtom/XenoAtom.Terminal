@@ -255,6 +255,9 @@ await Terminal.Clipboard.TrySetTextAsync("Hello".AsMemory(), timeoutMs: 500);
 
 XenoAtom.Terminal uses a single unified event stream for input. This is the preferred API for TUIs.
 
+On Windows, ConPTY-based terminals (Windows Terminal, VS Code terminal, etc.) can deliver mouse input as ANSI/VT sequences.
+This is enabled automatically when detected. If needed, you can override it via `TerminalOptions.WindowsVtInputDecoder`.
+
 ```csharp
 Terminal.StartInput(new TerminalInputOptions
 {
