@@ -197,6 +197,11 @@ public sealed partial class TerminalInstance
         var mouseSelecting = false;
         var suppressMouseUpSelectionUpdate = false;
 
+        IReadOnlyList<string>? completionCandidates = null;
+        int completionCandidateIndex = -1;
+        int completionReplaceStart = -1;
+        int completionReplaceLength = 0;
+
         var origin = GetCursorPosition();
         var windowColumns = Math.Max(1, GetWindowSize().Columns);
         var availableCells = Math.Max(1, options.ViewWidth ?? Math.Max(1, windowColumns - origin.Column - promptCells));
@@ -239,6 +244,7 @@ public sealed partial class TerminalInstance
                     throw new OperationCanceledException("ReadLine interrupted by terminal signal.");
 
                 case TerminalPasteEvent paste:
+                    ResetCompletionSession();
                     if (!string.IsNullOrEmpty(paste.Text))
                     {
                         if (InsertText(paste.Text.AsSpan(), out var accepted))
@@ -262,6 +268,7 @@ public sealed partial class TerminalInstance
                     break;
 
                 case TerminalTextEvent text:
+                    ResetCompletionSession();
                     if (!string.IsNullOrEmpty(text.Text))
                     {
                         if (InsertText(text.Text.AsSpan(), out var accepted))
@@ -285,6 +292,10 @@ public sealed partial class TerminalInstance
                     break;
 
                 case TerminalMouseEvent mouse:
+                    if (mouse.Kind != TerminalMouseKind.Move)
+                    {
+                        ResetCompletionSession();
+                    }
                     if (options.MouseHandler is { } mouseHandler)
                     {
                         controller.BeginCallback();
@@ -319,6 +330,7 @@ public sealed partial class TerminalInstance
 
                         if (controller.Handled)
                         {
+                            ResetCompletionSession();
                             RenderIfEcho();
                             break;
                         }
@@ -326,6 +338,7 @@ public sealed partial class TerminalInstance
 
                     if (options.EnableMouseEditing && HandleEditorMouse(mouse))
                     {
+                        ResetCompletionSession();
                         RenderIfEcho();
                     }
 
@@ -336,6 +349,11 @@ public sealed partial class TerminalInstance
                     {
                         // Ctrl+D on an empty line behaves like EOF.
                         return null;
+                    }
+
+                    if (key.Key != TerminalKey.Tab)
+                    {
+                        ResetCompletionSession();
                     }
 
                     if (options.KeyHandler is { } handler)
@@ -372,6 +390,7 @@ public sealed partial class TerminalInstance
 
                         if (controller.Handled)
                         {
+                            ResetCompletionSession();
                             RenderIfEcho();
                             break;
                         }
@@ -428,6 +447,14 @@ public sealed partial class TerminalInstance
         {
             historyIndex = -1;
             historySnapshot = null;
+        }
+
+        void ResetCompletionSession()
+        {
+            completionCandidates = null;
+            completionCandidateIndex = -1;
+            completionReplaceStart = -1;
+            completionReplaceLength = 0;
         }
 
         void ComputeView(ReadOnlySpan<char> lineSpan, out int contentStartCell, out int contentCells, out int viewStartIndex, out int viewEndIndex, out bool left, out bool right, out int ellipsisCells)
@@ -608,12 +635,58 @@ public sealed partial class TerminalInstance
 
         bool HandleEditorKey(TerminalKeyEvent key)
         {
-            // Completion (Tab)
-            if (key.Key == TerminalKey.Tab && options.CompletionHandler is { } completion)
+            // Completion (Tab) with cycling candidates.
+            if (key.Key == TerminalKey.Tab)
             {
-                var result = completion(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex, controller.SelectionStart, controller.SelectionLength);
-                if (result.Handled)
+                var reverse = key.Modifiers.HasFlag(TerminalModifiers.Shift);
+                if (completionCandidates is { Count: > 0 } && completionReplaceStart >= 0)
                 {
+                    completionCandidateIndex = reverse
+                        ? (completionCandidateIndex - 1 + completionCandidates.Count) % completionCandidates.Count
+                        : (completionCandidateIndex + 1) % completionCandidates.Count;
+
+                    ApplyCompletionCandidate(completionCandidates[completionCandidateIndex]);
+                    return true;
+                }
+
+                if (options.CompletionHandler is { } completion)
+                {
+                    var span = CollectionsMarshal.AsSpan(buffer);
+                    var result = completion(span, controller.CursorIndex, controller.SelectionStart, controller.SelectionLength);
+                    if (!result.Handled)
+                    {
+                        return false;
+                    }
+
+                    if (result.Candidates is { Count: > 0 } candidates)
+                    {
+                        var replaceStart = result.ReplaceStart;
+                        var replaceLength = result.ReplaceLength;
+                        if (replaceStart is null || replaceLength is null)
+                        {
+                            if (controller.SelectionLength > 0)
+                            {
+                                replaceStart = controller.SelectionStart;
+                                replaceLength = controller.SelectionLength;
+                            }
+                            else
+                            {
+                                var start = MoveWordLeft(span, controller.CursorIndex);
+                                replaceStart = start;
+                                replaceLength = controller.CursorIndex - start;
+                            }
+                        }
+
+                        completionCandidates = candidates;
+                        completionCandidateIndex = 0;
+                        completionReplaceStart = Math.Clamp(replaceStart.Value, 0, buffer.Count);
+                        completionReplaceLength = Math.Clamp(replaceLength.Value, 0, buffer.Count - completionReplaceStart);
+
+                        ApplyCompletionCandidate(candidates[0]);
+                        ResetHistoryNavigation();
+                        return true;
+                    }
+
                     if (result.ReplaceText is not null)
                     {
                         SetBuffer(result.ReplaceText);
@@ -786,6 +859,21 @@ public sealed partial class TerminalInstance
             }
 
             return false;
+
+            void ApplyCompletionCandidate(string candidate)
+            {
+                var start = completionReplaceStart;
+                var length = completionReplaceLength;
+
+                start = Math.Clamp(start, 0, buffer.Count);
+                length = Math.Clamp(length, 0, buffer.Count - start);
+
+                controller.Select(start, start + length);
+                controller.Insert(candidate.AsSpan());
+
+                completionReplaceStart = start;
+                completionReplaceLength = candidate.Length;
+            }
         }
 
         bool HandleCtrlKey(char ch)

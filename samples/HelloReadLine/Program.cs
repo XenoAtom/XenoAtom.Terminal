@@ -28,6 +28,8 @@ public static class Program
     private static readonly string[] Commands =
     [
         "/help",
+        "/hello",
+        "/helium",
         "/exit",
         "/clear",
         "/nonl",
@@ -126,6 +128,38 @@ public static class Program
         }
     }
 
+    private static void ShowHelp()
+    {
+        Terminal.WriteMarkup("""
+                             [bold green]HelloReadLine[/] — interactive ReadLine editor demo
+
+                             [bold]Try these features:[/]
+                              - [cyan]Left/Right/Home/End[/] cursor movement, mid-line insert/delete
+                              - [cyan]Up/Down[/] history (reusing the same options instance)
+                              - [cyan]Shift+Left/Right[/] selection (and [cyan]Ctrl+Shift+Left/Right[/] by word when available)
+                              - [cyan]Ctrl+Left/Right[/] word movement (often [cyan]Alt+Left/Right[/] on some terminals)
+                              - [cyan]Ctrl+Backspace[/] / [cyan]Ctrl+Delete[/] word delete (when available)
+                              - [cyan]Tab[/] completion for slash commands (type [gray]/he[/], then press Tab repeatedly to cycle between [gray]/help[/], [gray]/hello[/], [gray]/helium[/])
+                              - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
+                              - [cyan]Mouse click/drag[/] sets cursor and selection (when supported)
+                              - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]
+                              
+                              [gray]Tip: when an app enables mouse reporting, terminal text selection usually stops working. Hold Shift while dragging to force terminal selection (varies by terminal).[/]
+
+                             [bold]Commands[/]
+                              - [cyan]/help[/]  show help
+                              - [cyan]/hello[/] print a greeting (demo)
+                              - [cyan]/helium[/] print a fake command (demo)
+                              - [cyan]/exit[/]  exit the sample
+                              - [cyan]/clear[/] clear the screen
+                              - [cyan]/nonl[/]  toggle EmitNewLineOnAccept
+                              - [cyan]/width N[/] set ViewWidth (cells), e.g. /width 20
+                              - [cyan]/max N[/]   set MaxLength (UTF-16 code units), e.g. /max 80
+                             
+                             [gray]Type /help for commands. Type /exit to quit.[/]
+                             """);
+    }
+
     private static void HandleKey(TerminalReadLineController controller, TerminalKeyEvent key)
     {
         // Ctrl+O inserts a timestamp (example of a custom key binding).
@@ -153,17 +187,24 @@ public static class Program
             return default;
         }
 
+        var candidates = new List<string>(4);
         for (var i = 0; i < Commands.Length; i++)
         {
-            var cmd = Commands[i].AsSpan();
-            if (cmd.StartsWith(token, StringComparison.OrdinalIgnoreCase) && cmd.Length > token.Length)
+            if (Commands[i].AsSpan().StartsWith(token, StringComparison.OrdinalIgnoreCase))
             {
-                return new TerminalReadLineCompletion
-                {
-                    Handled = true,
-                    InsertText = Commands[i].AsSpan(token.Length).ToString(),
-                };
+                candidates.Add(Commands[i]);
             }
+        }
+
+        if (candidates.Count > 0)
+        {
+            return new TerminalReadLineCompletion
+            {
+                Handled = true,
+                Candidates = candidates,
+                ReplaceStart = tokenStart,
+                ReplaceLength = cursorIndex - tokenStart,
+            };
         }
 
         return default;
@@ -418,36 +459,6 @@ public static class Program
         }
     }
 
-    private static void ShowHelp()
-    {
-        Terminal.WriteMarkup("""
-                             [bold green]HelloReadLine[/] — interactive ReadLine editor demo
-
-                             [bold]Try these features:[/]
-                             - [cyan]Left/Right/Home/End[/] cursor movement, mid-line insert/delete
-                             - [cyan]Up/Down[/] history (reusing the same options instance)
-                             - [cyan]Shift+Left/Right[/] selection (and [cyan]Ctrl+Shift+Left/Right[/] by word when available)
-                             - [cyan]Ctrl+Left/Right[/] word movement (often [cyan]Alt+Left/Right[/] on some terminals)
-                              - [cyan]Ctrl+Backspace[/] / [cyan]Ctrl+Delete[/] word delete (when available)
-                              - [cyan]Tab[/] completion for slash commands (e.g. type [gray]/he[/] then Tab)
-                              - [cyan]Ctrl+O[/] inserts a timestamp via a custom key handler
-                              - [cyan]Mouse click/drag[/] sets cursor and selection (when supported)
-                              - Custom markup renderer highlights: selection + keywords [red]error[/], [yellow]warn[/], [green]info[/]
-                              
-                              [gray]Tip: when an app enables mouse reporting, terminal text selection usually stops working. Hold Shift while dragging to force terminal selection (varies by terminal).[/]
-
-                              [bold]Commands[/]
-                              - [cyan]/help[/]  show help
-                              - [cyan]/exit[/]  exit the sample
-                             - [cyan]/clear[/] clear the screen
-                             - [cyan]/nonl[/]  toggle EmitNewLineOnAccept
-                             - [cyan]/width N[/] set ViewWidth (cells), e.g. /width 20
-                             - [cyan]/max N[/]   set MaxLength (UTF-16 code units), e.g. /max 80
-                             
-                             [gray]Type /help for commands. Type /exit to quit.[/]
-                             """);
-    }
-
     private static bool HandleCommand(string line, TerminalReadLineOptions options)
     {
         if (line.Equals("/exit", StringComparison.OrdinalIgnoreCase))
@@ -458,6 +469,18 @@ public static class Program
         if (line.Equals("/help", StringComparison.OrdinalIgnoreCase))
         {
             ShowHelp();
+            return false;
+        }
+
+        if (line.Equals("/hello", StringComparison.OrdinalIgnoreCase))
+        {
+            Terminal.WriteMarkupLine("[green]Hello![/] [gray](This is a fake command for completion cycling.)[/]");
+            return false;
+        }
+
+        if (line.Equals("/helium", StringComparison.OrdinalIgnoreCase))
+        {
+            Terminal.WriteMarkupLine("[gray]He[/][cyan]Li[/][gray]Um[/] [darkgray](Another fake command for completion cycling.)[/]");
             return false;
         }
 

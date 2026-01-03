@@ -318,10 +318,19 @@ while (true)
 var options = new TerminalReadLineOptions
 {
     Echo = true,
-    CompletionHandler = static (text, cursor, selectionStart, selectionLength) => new TerminalReadLineCompletion
+    CompletionHandler = static (text, cursor, selectionStart, selectionLength) =>
     {
-        Handled = true,
-        InsertText = "completion",
+        _ = selectionStart;
+        _ = selectionLength;
+
+        // Return candidates, then press Tab repeatedly to cycle through them until you type another key.
+        return new TerminalReadLineCompletion
+        {
+            Handled = true,
+            Candidates = ["help", "hello", "helium"],
+            ReplaceStart = 0,
+            ReplaceLength = cursor,
+        };
     },
 };
 ```

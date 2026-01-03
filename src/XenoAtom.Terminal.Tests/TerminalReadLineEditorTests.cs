@@ -97,6 +97,100 @@ public sealed class TerminalReadLineEditorTests
     }
 
     [TestMethod]
+    public async Task ReadLineAsync_Tab_CyclesCompletionCandidates_UntilOtherAction()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var calls = 0;
+        var options = new TerminalReadLineOptions
+        {
+            Echo = false,
+            EnableEditing = true,
+            CompletionHandler = (text, cursor, selectionStart, selectionLength) =>
+            {
+                _ = selectionStart;
+                _ = selectionLength;
+                calls++;
+
+                // Replace the token fragment to the left of the cursor.
+                var start = cursor;
+                while (start > 0 && !char.IsWhiteSpace(text[start - 1]))
+                {
+                    start--;
+                }
+
+                return new TerminalReadLineCompletion
+                {
+                    Handled = true,
+                    Candidates = ["hello", "help"],
+                    ReplaceStart = start,
+                    ReplaceLength = cursor - start,
+                };
+            },
+        };
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+        backend.PushEvent(new TerminalTextEvent { Text = "he" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Tab }); // hello
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Tab }); // help
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("help", await task);
+        Assert.AreEqual(1, calls);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_Tab_CycleSessionResets_OnTextInput()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, EnableResizeEvents = false });
+
+        var calls = 0;
+        var options = new TerminalReadLineOptions
+        {
+            Echo = false,
+            EnableEditing = true,
+            CompletionHandler = (text, cursor, selectionStart, selectionLength) =>
+            {
+                _ = text;
+                _ = cursor;
+                _ = selectionStart;
+                _ = selectionLength;
+                calls++;
+
+                return calls switch
+                {
+                    1 => new TerminalReadLineCompletion
+                    {
+                        Handled = true,
+                        Candidates = ["hello", "help"],
+                        ReplaceStart = 0,
+                        ReplaceLength = 2,
+                    },
+                    _ => new TerminalReadLineCompletion
+                    {
+                        Handled = true,
+                        InsertText = "Z",
+                    },
+                };
+            },
+        };
+
+        var task = Terminal.ReadLineAsync(options).AsTask();
+        backend.PushEvent(new TerminalTextEvent { Text = "he" });
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Tab }); // hello
+        backend.PushEvent(new TerminalTextEvent { Text = "!" }); // breaks completion session
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Tab }); // handler called again -> insert Z
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("hello!Z", await task);
+        Assert.AreEqual(2, calls);
+    }
+
+    [TestMethod]
     public async Task ReadLineAsync_ViewWidth_ShowsEllipsis_WhenEchoEnabled()
     {
         var backend = new InMemoryTerminalBackend(initialSize: new TerminalSize(10, 5));
