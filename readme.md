@@ -4,9 +4,6 @@
 
 XenoAtom.Terminal is a modern replacement for `System.Console` designed for TUI/CLI apps: serialized output, rich ANSI/markup rendering, unified input events, and deterministic tests.
 
-> [!WARNING]
-> This project is under development and in pre-release status. The API may change before reaching a stable 1.0.0 version.
-
 ## Quick start
 
 ```csharp
