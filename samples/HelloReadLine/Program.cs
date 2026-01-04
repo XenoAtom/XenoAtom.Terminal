@@ -1,4 +1,5 @@
 using System.Text;
+using XenoAtom.Ansi;
 using XenoAtom.Terminal;
 
 namespace HelloReadLine;
@@ -360,25 +361,7 @@ public static class Program
         return false;
     }
 
-    private static void AppendEscaped(StringBuilder sb, ReadOnlySpan<char> text)
-    {
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (c == '[')
-            {
-                sb.Append("[[");
-            }
-            else if (c == ']')
-            {
-                sb.Append("]]");
-            }
-            else
-            {
-                sb.Append(c);
-            }
-        }
-    }
+    private static void AppendEscaped(StringBuilder sb, ReadOnlySpan<char> text) => sb.Append(AnsiMarkup.Escape(text));
 
     private static bool HandleCommand(string line, TerminalReadLineOptions options)
     {
