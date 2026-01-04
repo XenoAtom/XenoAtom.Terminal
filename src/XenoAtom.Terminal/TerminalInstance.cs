@@ -798,10 +798,15 @@ public sealed partial class TerminalInstance : IDisposable
     }
 
     /// <summary>
-    /// Enables raw/cbreak mode within a scope and restores the previous mode when disposed (best effort).
+    /// Enables raw/cbreak mode within a scope and restores the previous mode when disposed.
     /// </summary>
-    /// <param name="kind">The raw mode kind.</param>
+    /// <param name="kind">The raw mode kind (use <see cref="TerminalRawModeKind.CBreak"/> as the portable default for TUIs).</param>
     /// <returns>A scope that restores the previous mode on dispose.</returns>
+    /// <remarks>
+    /// <see cref="TerminalRawModeKind.CBreak"/> disables canonical input and echo. On Unix it also disables software flow control
+    /// (so Ctrl+S/Ctrl+Q are delivered as keys) and disables CR-to-NL translation (so Enter typically yields <c>'\r'</c>).
+    /// <see cref="TerminalRawModeKind.Raw"/> is more invasive (Unix <c>cfmakeraw</c>) and can change how newlines are handled.
+    /// </remarks>
     public TerminalScope UseRawMode(TerminalRawModeKind kind = TerminalRawModeKind.CBreak) => UseBackendScope(b => b.UseRawMode(kind));
 
     /// <summary>

@@ -23,6 +23,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
   - [Window and buffer sizes](#window-and-buffer-sizes)
   - [Clipboard](#clipboard)
 - [Input](#input)
+  - [Why mouse and bracketed paste are opt-in](#why-mouse-and-bracketed-paste-are-opt-in)
   - [Important: do not mix Console input APIs](#important-do-not-mix-console-input-apis)
   - [Event types](#event-types)
   - [ReadKey / KeyAvailable (Console-like)](#readkey--keyavailable-console-like)
@@ -34,8 +35,11 @@ It keeps a familiar Console-like surface while adding terminal-native features t
   - [Completion (Tab)](#completion-tab)
   - [Extending the editor (custom key/mouse handlers)](#extending-the-editor-custom-keymouse-handlers)
   - [Mouse editing (optional)](#mouse-editing-optional)
+    - [Why mouse “does nothing” in terminals](#why-mouse-does-nothing-in-terminals)
   - [Rendering and styling the editable line](#rendering-and-styling-the-editable-line)
   - [Fixed-width view, ellipsis, max length](#fixed-width-view-ellipsis-max-length)
+  - [Undo/redo, reverse search, key bindings](#undoredo-reverse-search-key-bindings)
+  - [Text utilities (cell width, word boundaries)](#text-utilities-cell-width-word-boundaries)
   - [Cancellation and newline emission](#cancellation-and-newline-emission)
 - [Troubleshooting](#troubleshooting)
 - [Scopes](#scopes)
@@ -492,7 +496,6 @@ Some operations depend on the current backend and host terminal; unsupported ope
 | ReadLine editor is "basic" (no cursor movement) | Output is redirected or cursor positioning is unavailable | Run on an interactive terminal; avoid piping output; if needed for colors only, use `TerminalOptions.ForceAnsi`. |
 | Clipboard on Linux does nothing | No clipboard provider installed or no GUI session | Install `wl-copy`/`wl-paste` (Wayland) or `xclip`/`xsel` (X11). |
 | Clipboard set doesn't work over SSH | No local system clipboard | Enable OSC 52 fallback (`TerminalOptions.EnableOsc52Clipboard`, enabled by default) and use a terminal that supports it. |
-| Mouse works in `HelloTerminal` but not in `ReadLine` | Mouse editing is opt-in | Set `EnableMouseEditing = true` in `TerminalReadLineOptions` (and enable mouse reporting). |
 | Windows mouse doesn’t work in some terminals | The host may require VT input mode for certain sequences | Set `TerminalOptions.WindowsVtInputDecoder = Enabled`. |
 | Unexpected input when mixing with `Console.*` | `Console.ReadLine/ReadKey` consumes the same stream | When input is running, use `Terminal.ReadEventsAsync`/`ReadLineAsync` instead of `Console.*`. |
 
@@ -504,12 +507,24 @@ Scoped operations restore terminal state reliably when disposed:
 using var _title = Terminal.UseTitle("My App");
 using var _alt = Terminal.UseAlternateScreen();
 using var _cursor = Terminal.HideCursor();
-using var _raw = Terminal.UseRawMode(TerminalRawModeKind.CBreak);
+using var _raw = Terminal.UseRawMode();
 using var _paste = Terminal.EnableBracketedPaste();
 
 Terminal.Clear();
 Terminal.WriteLine("Hello from the alternate screen");
 ```
+
+### Raw mode (cbreak vs raw)
+
+`Terminal.UseRawMode()` defaults to **CBreak**, which is the recommended portable default for TUIs:
+
+- Disables line buffering (characters are available immediately).
+- Disables echo.
+- On Unix, disables **software flow control** so Ctrl+S / Ctrl+Q are delivered as input (instead of pausing/resuming output).
+- On Unix, disables CR-to-NL translation so Enter typically yields `'\r'` (matching Windows), while some terminals can still produce `'\n'` for Ctrl+Enter.
+- On Windows, keeps processed input by default so Ctrl+C remains a signal unless `TerminalOptions.TreatControlCAsInput` is enabled.
+
+`Terminal.UseRawMode(TerminalRawModeKind.Raw)` is more invasive (Unix `cfmakeraw` / Windows processed input off) and is intended for scenarios that truly need the lowest-level input behavior.
 
 ## Testing
 
