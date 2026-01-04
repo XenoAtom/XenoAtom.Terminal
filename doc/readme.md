@@ -47,20 +47,6 @@ It keeps a familiar Console-like surface while adding terminal-native features t
 - [Testing](#testing)
 - [Samples](#samples)
 
-## Contents
-
-- Getting started
-- Why Terminal? (vs `System.Console`)
-- Capabilities and backends
-- Output (plain, ANSI, markup, atomic writes)
-- Console-like state (title, colors/style, cursor/window)
-- Input (unified events, ReadKey, signals)
-- ReadLine editor (detailed)
-- Troubleshooting
-- Scopes (restore-on-dispose)
-- Testing (in-memory backend)
-- Samples
-
 ## Why Terminal? (vs `System.Console`)
 
 `System.Console` is great for simple apps, but it is not designed as a terminal UI foundation. Many features that modern terminals support are either missing entirely or require piecing together platform-specific code.
@@ -75,20 +61,22 @@ XenoAtom.Terminal is intentionally shaped for TUI/CLI apps:
 
 ### What Terminal adds over `System.Console`
 
+Legend: ✅ supported · ⚠️ partial/limited · ❌ not supported
+
 | Feature | XenoAtom.Terminal | `System.Console` |
 |---|---|---|
-| Atomic, ANSI-safe output | Yes (serialized writers + `WriteAtomic`) | No |
-| Markup and styling | Yes (`WriteMarkup`, `AnsiStyle`, `AnsiColor`) | No |
-| Hyperlinks (OSC 8) | Yes (when ANSI is enabled) | No |
-| Alternate screen + cursor scopes | Yes (`UseAlternateScreen`, `HideCursor`, `UseRawMode`, …) | No |
-| Unified async input events | Yes (`ReadEventsAsync`) | No |
-| Mouse events | Yes (opt-in; when supported) | No |
-| Bracketed paste as an event | Yes (opt-in; when supported) | No |
-| Resize events stream | Yes | Polling only (`WindowWidth`/`WindowHeight`) |
-| Rich `ReadLine` editor | Yes (history, selection, completion, clipboard, rendering) | Basic line input |
-| Clipboard API | Yes (`Terminal.Clipboard`) | No |
-| Capability detection | Yes (`Terminal.Capabilities`) | Limited |
-| Testable backends | Yes (virtual + in-memory) | No |
+| Atomic, ANSI-safe output | ✅ (serialized writers + `WriteAtomic`) | ❌ |
+| Markup and styling | ✅ (`WriteMarkup`, `AnsiStyle`, `AnsiColor`) | ❌ |
+| Hyperlinks (OSC 8) | ✅ (when ANSI is enabled) | ❌ |
+| Alternate screen + cursor scopes | ✅ (`UseAlternateScreen`, `HideCursor`, `UseRawMode`, …) | ❌ |
+| Unified async input events | ✅ (`ReadEventsAsync`) | ❌ |
+| Mouse events | ✅ (opt-in; when supported) | ❌ |
+| Bracketed paste as an event | ✅ (opt-in; when supported) | ❌ |
+| Resize events stream | ✅ | ⚠️ (polling only via `WindowWidth`/`WindowHeight`) |
+| Rich `ReadLine` editor | ✅ (history, selection, completion, clipboard, rendering) | ⚠️ (basic line input) |
+| Clipboard API | ✅ (`Terminal.Clipboard`) | ❌ |
+| Capability detection | ✅ (`Terminal.Capabilities`) | ⚠️ |
+| Testable backends | ✅ (virtual + in-memory) | ❌ |
 
 ## Getting started
 
