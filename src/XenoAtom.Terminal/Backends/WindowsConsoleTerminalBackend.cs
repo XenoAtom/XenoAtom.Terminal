@@ -2,13 +2,14 @@
 // Licensed under the BSD-Clause 2 license.
 // See license.txt file in the project root for full license information.
 
-using System.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal.Internal;
 using XenoAtom.Terminal.Internal.Windows;
+using static XenoAtom.Terminal.Internal.Windows.Win32Console;
 
 namespace XenoAtom.Terminal.Backends;
 
@@ -1248,21 +1249,33 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
     private void HandleInputRecord(Win32Console.INPUT_RECORD record, VtInputDecoder? vtDecoder)
     {
+        //Console.Write($"Event {record.EventType}");
         switch (record.EventType)
         {
-            case Win32Console.KEY_EVENT:
+            case InputEventType.KeyEvent:
+                //Console.Write($" VirtualKeyCode: {record.Event.KeyEvent.wVirtualKeyCode} VirtualScanCode: {record.Event.KeyEvent.wVirtualScanCode}");
                 HandleKeyEvent(record.Event.KeyEvent, vtDecoder);
                 break;
-            case Win32Console.MOUSE_EVENT:
+            case InputEventType.MouseEvent:
                 if (_inputOptions?.EnableMouseEvents == true)
                 {
                     HandleMouseEvent(record.Event.MouseEvent);
                 }
                 break;
-            case Win32Console.WINDOW_BUFFER_SIZE_EVENT:
+            case InputEventType.WindowBufferSizeEvent:
                 HandleResize(record.Event.WindowBufferSizeEvent);
                 break;
+            case InputEventType.FocusEvent:
+                // Not handled.
+                break;
+            case InputEventType.MenuEvent:
+                // Not handled. (as not portable)
+                break;
+            default:
+                // Unknown event type; ignore.
+                break;
         }
+        //Console.WriteLine();
     }
 
     private void HandleKeyEvent(Win32Console.KEY_EVENT_RECORD key, VtInputDecoder? vtDecoder)
@@ -1322,13 +1335,21 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
                 continue;
             }
 
-            _events.Publish(new TerminalKeyEvent
+            // Check for diacritic dead key combinations. (e.g. ' before an e to form é)
+            // It can happen that a key event has no associated character and is not mapped to a known key
+            // (e.g. ' and ` on a US international keyboard, first character will be combined with next, so we skip the first one)
+            // As on other platforms these characters are not emitted in VT sequences,
+            // we have to skip them on Windows (even if we could handle a preview for them).
+            if (ch is not null || terminalKey != TerminalKey.Unknown)
             {
-                Key = terminalKey,
-                Char = ch,
-                Modifiers = modifiers,
-            });
-            wasDown = true;
+                _events.Publish(new TerminalKeyEvent
+                {
+                    Key = terminalKey,
+                    Char = ch,
+                    Modifiers = modifiers,
+                });
+                wasDown = true;
+            }
 
             // Emit text events for printable characters. This is useful for UI-oriented consumption
             // (text input separate from physical keys).

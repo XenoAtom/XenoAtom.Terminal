@@ -31,6 +31,18 @@ internal static unsafe class Win32Console
     public const ushort KEY_EVENT = 0x0001;
     public const ushort MOUSE_EVENT = 0x0002;
     public const ushort WINDOW_BUFFER_SIZE_EVENT = 0x0004;
+    public const ushort MENU_EVENT = 0x0008;
+    public const ushort FOCUS_EVENT = 0x0010;
+
+    public enum InputEventType : ushort
+    {
+        KeyEvent = KEY_EVENT,
+        MouseEvent = MOUSE_EVENT,
+        WindowBufferSizeEvent = WINDOW_BUFFER_SIZE_EVENT,
+        MenuEvent = MENU_EVENT,
+        FocusEvent = FOCUS_EVENT
+    }
+
 
     public const uint FROM_LEFT_1ST_BUTTON_PRESSED = 0x0001;
     public const uint RIGHTMOST_BUTTON_PRESSED = 0x0002;
@@ -164,7 +176,7 @@ internal static unsafe class Win32Console
     {
         // WORD EventType;
         [FieldOffset(0)]
-        public readonly ushort EventType;
+        public readonly InputEventType EventType;
 
         // union starts at offset 4
         [FieldOffset(4)]
