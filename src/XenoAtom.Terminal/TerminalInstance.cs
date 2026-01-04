@@ -37,7 +37,6 @@ public sealed partial class TerminalInstance : IDisposable
     private TextWriter? _error;
 
     private AnsiCapabilities? _ansiCapabilities;
-    private AnsiWriter? _writer;
     private AnsiWriter? _writerUnsafe;
     private AnsiMarkup? _markupUnsafe;
 
@@ -513,12 +512,6 @@ public sealed partial class TerminalInstance : IDisposable
     /// <exception cref="InvalidOperationException">Thrown if the instance is not initialized.</exception>
     public TextWriter Error => _error ?? throw new InvalidOperationException("Terminal is not initialized.");
 
-    /// <summary>
-    /// Gets a shared <see cref="AnsiWriter"/> bound to <see cref="Out"/>.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown if the instance is not initialized.</exception>
-    public AnsiWriter Writer => _writer ?? throw new InvalidOperationException("Terminal is not initialized.");
-
     internal void Initialize(ITerminalBackend? backend, TerminalOptions? options)
     {
         ThrowIfDisposed();
@@ -539,7 +532,6 @@ public sealed partial class TerminalInstance : IDisposable
         _error = new SynchronizedTextWriter(_rawError, _outputLock);
 
         _ansiCapabilities = Internal.TerminalAnsiCapabilities.Create(_backend.Capabilities, _options);
-        _writer = new AnsiWriter(_out, _ansiCapabilities);
         _writerUnsafe = new AnsiWriter(_rawOut, _ansiCapabilities);
         _markupUnsafe = new AnsiMarkup(_writerUnsafe);
 
@@ -578,7 +570,6 @@ public sealed partial class TerminalInstance : IDisposable
         _out = null;
         _error = null;
         _ansiCapabilities = null;
-        _writer = null;
         _writerUnsafe = null;
         _markupUnsafe = null;
         _style = AnsiStyle.Default;

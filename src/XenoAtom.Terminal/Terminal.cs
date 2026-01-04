@@ -65,9 +65,6 @@ public static partial class Terminal
     /// <inheritdoc cref="TerminalInstance.Error" />
     public static TextWriter Error => Instance.Error;
 
-    /// <inheritdoc cref="TerminalInstance.Writer" />
-    public static AnsiWriter Writer => Instance.Writer;
-
     /// <inheritdoc cref="TerminalInstance.Cursor" />
     public static TerminalCursor Cursor => Instance.Cursor;
 
