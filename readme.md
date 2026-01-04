@@ -1,6 +1,6 @@
 # XenoAtom.Terminal [![ci](https://github.com/XenoAtom/XenoAtom.Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/XenoAtom/XenoAtom.Terminal/actions/workflows/ci.yml) [![NuGet](https://img.shields.io/nuget/v/XenoAtom.Terminal.svg)](https://www.nuget.org/packages/XenoAtom.Terminal/)
 
-<img align="right" width="160px" height="160px" src="https://raw.githubusercontent.com/XenoAtom/XenoAtom.Terminal/main/img/XenoAtom.Terminal.png">
+<img align="right" width="256px" height="256px" src="https://raw.githubusercontent.com/XenoAtom/XenoAtom.Terminal/main/img/XenoAtom.Terminal.png">
 
 XenoAtom.Terminal is a modern replacement for `System.Console` designed for TUI/CLI apps: serialized output, rich ANSI/markup rendering, unified input events, and deterministic tests.
 
