@@ -8,6 +8,12 @@ internal static unsafe class UnixTermiosModes
 {
     public static void ConfigureCbreak(ref LibC.termios_linux termios, bool enableSignals)
     {
+        // "cbreak" is intended as a TUI-friendly default:
+        // - no canonical (line-buffered) input
+        // - no echo
+        // - no implementation-defined extensions that can intercept certain keys
+        // - no CR->NL mapping so Enter is typically '\r' (closer to Windows)
+        // - no XON/XOFF flow control so Ctrl+S/Ctrl+Q are delivered to the app
         termios.c_lflag &= ~(LibC.LINUX_ICANON | LibC.LINUX_ECHO | LibC.LINUX_IEXTEN);
         if (enableSignals) termios.c_lflag |= LibC.LINUX_ISIG;
         else termios.c_lflag &= ~LibC.LINUX_ISIG;
@@ -20,6 +26,7 @@ internal static unsafe class UnixTermiosModes
 
     public static void ConfigureCbreak(ref LibC.termios_macos termios, bool enableSignals)
     {
+        // See the Linux variant for rationale. We apply the same intent using macOS termios flags.
         termios.c_lflag &= ~(LibC.MACOS_ICANON | LibC.MACOS_ECHO | LibC.MACOS_IEXTEN);
         if (enableSignals) termios.c_lflag |= LibC.MACOS_ISIG;
         else termios.c_lflag &= ~LibC.MACOS_ISIG;
@@ -56,4 +63,3 @@ internal static unsafe class UnixTermiosModes
         }
     }
 }
-

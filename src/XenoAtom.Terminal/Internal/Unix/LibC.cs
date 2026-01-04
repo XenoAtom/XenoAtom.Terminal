@@ -211,13 +211,16 @@ internal static unsafe class LibC
     }
 
     // Linux (glibc/musl): termios uses 32-bit flags and includes c_line + 32 cc bytes.
-    public const uint LINUX_ISIG = 0x00000001;
-    public const uint LINUX_ICANON = 0x00000002;
-    public const uint LINUX_ECHO = 0x00000008;
-    public const uint LINUX_IEXTEN = 0x00008000;
+    //
+    // NOTE: We intentionally only define the small subset of flags we need for terminal input mode configuration.
+    // See `man termios` for detailed semantics.
+    public const uint LINUX_ISIG = 0x00000001;   // Enable signal generation (Ctrl+C, Ctrl+Z, ...).
+    public const uint LINUX_ICANON = 0x00000002; // Canonical mode (line buffering, special line editing keys).
+    public const uint LINUX_ECHO = 0x00000008;   // Echo input characters.
+    public const uint LINUX_IEXTEN = 0x00008000; // Implementation-defined input processing extensions.
 
-    public const uint LINUX_ICRNL = 0x00000100;
-    public const uint LINUX_IXON = 0x00000400;
+    public const uint LINUX_ICRNL = 0x00000100;  // Map CR to NL on input (affects Enter in cbreak/raw-like modes).
+    public const uint LINUX_IXON = 0x00000400;   // XON/XOFF software flow control (Ctrl+S / Ctrl+Q).
 
     public const int LINUX_VTIME = 5;
     public const int LINUX_VMIN = 6;
@@ -263,13 +266,16 @@ internal static unsafe class LibC
     }
 
     // macOS: termios uses unsigned long (64-bit) flags and includes 20 cc bytes (no c_line field).
-    public const nuint MACOS_ISIG = 0x00000080;
-    public const nuint MACOS_ICANON = 0x00000100;
-    public const nuint MACOS_ECHO = 0x00000008;
-    public const nuint MACOS_IEXTEN = 0x00000400;
+    //
+    // NOTE: We intentionally only define the small subset of flags we need for terminal input mode configuration.
+    // See `man termios` for detailed semantics.
+    public const nuint MACOS_ISIG = 0x00000080;   // Enable signal generation (Ctrl+C, Ctrl+Z, ...).
+    public const nuint MACOS_ICANON = 0x00000100; // Canonical mode (line buffering, special line editing keys).
+    public const nuint MACOS_ECHO = 0x00000008;   // Echo input characters.
+    public const nuint MACOS_IEXTEN = 0x00000400; // Implementation-defined input processing extensions.
 
-    public const nuint MACOS_ICRNL = 0x00000100;
-    public const nuint MACOS_IXON = 0x00000200;
+    public const nuint MACOS_ICRNL = 0x00000100;  // Map CR to NL on input (affects Enter in cbreak/raw-like modes).
+    public const nuint MACOS_IXON = 0x00000200;   // XON/XOFF software flow control (Ctrl+S / Ctrl+Q).
 
     public const int MACOS_VTIME = 17;
     public const int MACOS_VMIN = 16;
