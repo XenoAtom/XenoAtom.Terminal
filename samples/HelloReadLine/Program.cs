@@ -401,7 +401,7 @@ public static class Program
 
         if (line.Equals("/helium", StringComparison.OrdinalIgnoreCase))
         {
-            Terminal.WriteMarkupLine("[gray]He[/][cyan]Li[/][gray]Um[/] [darkgray](Another fake command for completion cycling.)[/]");
+            Terminal.WriteMarkupLine("[gray]He[/][cyan]Li[/][gray]Um[/] [cyan](Another fake command for completion cycling.)[/]");
             return false;
         }
 

@@ -340,7 +340,7 @@ var counter = 1;
 var options = new TerminalReadLineOptions
 {
     Echo = true,
-    PromptMarkup = () => $"[gray]{counter++}[/] [darkgray]>[/] ",
+    PromptMarkup = () => $"[gray]{counter++}[/] [cyan]>[/] ",
 };
 
 var line = await Terminal.ReadLineAsync(options);
@@ -352,7 +352,7 @@ History lives on `TerminalReadLineOptions` so you can scope/share it explicitly:
 
 ```csharp
 Terminal.StartInput();
-var options = new TerminalReadLineOptions { Echo = true, PromptMarkup = () => "[darkgray]>[/] " };
+var options = new TerminalReadLineOptions { Echo = true, PromptMarkup = () => "[cyan]>[/] " };
 
 while (true)
 {
