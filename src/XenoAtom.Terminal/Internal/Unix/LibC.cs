@@ -214,6 +214,10 @@ internal static unsafe class LibC
     public const uint LINUX_ISIG = 0x00000001;
     public const uint LINUX_ICANON = 0x00000002;
     public const uint LINUX_ECHO = 0x00000008;
+    public const uint LINUX_IEXTEN = 0x00008000;
+
+    public const uint LINUX_ICRNL = 0x00000100;
+    public const uint LINUX_IXON = 0x00000400;
 
     public const int LINUX_VTIME = 5;
     public const int LINUX_VMIN = 6;
@@ -262,6 +266,10 @@ internal static unsafe class LibC
     public const nuint MACOS_ISIG = 0x00000080;
     public const nuint MACOS_ICANON = 0x00000100;
     public const nuint MACOS_ECHO = 0x00000008;
+    public const nuint MACOS_IEXTEN = 0x00000400;
+
+    public const nuint MACOS_ICRNL = 0x00000100;
+    public const nuint MACOS_IXON = 0x00000200;
 
     public const int MACOS_VTIME = 17;
     public const int MACOS_VMIN = 16;

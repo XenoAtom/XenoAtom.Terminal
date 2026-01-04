@@ -333,7 +333,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     {
         position = default;
 
-        using var _raw = UseRawMode(TerminalRawModeKind.CBreak);
+        using var _raw = UseRawMode();
 
         try
         {
@@ -622,7 +622,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     }
 
     /// <inheritdoc />
-    public TerminalScope UseRawMode(TerminalRawModeKind kind)
+    public TerminalScope UseRawMode(TerminalRawModeKind kind = TerminalRawModeKind.CBreak)
     {
         if (!Capabilities.SupportsRawMode)
         {
@@ -645,9 +645,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                 }
                 else
                 {
-                    desired.c_lflag &= ~(LibC.MACOS_ICANON | LibC.MACOS_ECHO);
-                    SetCc(ref desired, LibC.MACOS_VMIN, 1);
-                    SetCc(ref desired, LibC.MACOS_VTIME, 0);
+                    var enableSignals = (previous.c_lflag & LibC.MACOS_ISIG) != 0;
+                    UnixTermiosModes.ConfigureCbreak(ref desired, enableSignals);
                 }
 
                 if (LibC.tcsetattr_macos(LibC.STDIN_FILENO, LibC.TCSANOW, desired) != 0)
@@ -676,9 +675,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             }
             else
             {
-                desiredLinux.c_lflag &= ~(LibC.LINUX_ICANON | LibC.LINUX_ECHO);
-                SetCc(ref desiredLinux, LibC.LINUX_VMIN, 1);
-                SetCc(ref desiredLinux, LibC.LINUX_VTIME, 0);
+                var enableSignals = (previousLinux.c_lflag & LibC.LINUX_ISIG) != 0;
+                UnixTermiosModes.ConfigureCbreak(ref desiredLinux, enableSignals);
             }
 
             if (LibC.tcsetattr_linux(LibC.STDIN_FILENO, LibC.TCSANOW, desiredLinux) != 0)
@@ -1129,19 +1127,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                 }
 
                 var desired = current;
-                desired.c_lflag &= ~(LibC.MACOS_ICANON | LibC.MACOS_ECHO);
-
-                if (_inputOptions?.TreatControlCAsInput == true)
-                {
-                    desired.c_lflag &= ~LibC.MACOS_ISIG;
-                }
-                else
-                {
-                    desired.c_lflag |= LibC.MACOS_ISIG;
-                }
-
-                SetCc(ref desired, LibC.MACOS_VMIN, 1);
-                SetCc(ref desired, LibC.MACOS_VTIME, 0);
+                var enableSignals = _inputOptions?.TreatControlCAsInput != true;
+                UnixTermiosModes.ConfigureCbreak(ref desired, enableSignals);
 
                 LibC.tcsetattr_macos(LibC.STDIN_FILENO, LibC.TCSANOW, desired);
                 return;
@@ -1159,19 +1146,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             }
 
             var desiredLinux = currentLinux;
-            desiredLinux.c_lflag &= ~(LibC.LINUX_ICANON | LibC.LINUX_ECHO);
-
-            if (_inputOptions?.TreatControlCAsInput == true)
-            {
-                desiredLinux.c_lflag &= ~LibC.LINUX_ISIG;
-            }
-            else
-            {
-                desiredLinux.c_lflag |= LibC.LINUX_ISIG;
-            }
-
-            SetCc(ref desiredLinux, LibC.LINUX_VMIN, 1);
-            SetCc(ref desiredLinux, LibC.LINUX_VTIME, 0);
+            var enableSignalsLinux = _inputOptions?.TreatControlCAsInput != true;
+            UnixTermiosModes.ConfigureCbreak(ref desiredLinux, enableSignalsLinux);
 
             LibC.tcsetattr_linux(LibC.STDIN_FILENO, LibC.TCSANOW, desiredLinux);
         }
@@ -1363,31 +1339,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         return Rank(a) <= Rank(b) ? a : b;
     }
 
-    private static unsafe void SetCc(ref LibC.termios_linux termios, int index, byte value)
-    {
-        if ((uint)index >= 32)
-        {
-            return;
-        }
-
-        fixed (byte* cc = termios.c_cc)
-        {
-            cc[index] = value;
-        }
-    }
-
-    private static unsafe void SetCc(ref LibC.termios_macos termios, int index, byte value)
-    {
-        if ((uint)index >= 20)
-        {
-            return;
-        }
-
-        fixed (byte* cc = termios.c_cc)
-        {
-            cc[index] = value;
-        }
-    }
+    // Control character manipulation is centralized in UnixTermiosModes.
 
     /// <inheritdoc />
     public void Dispose()
