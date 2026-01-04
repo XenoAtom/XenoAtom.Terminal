@@ -7,6 +7,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
 > XenoAtom.Terminal is a terminal API, not a widget framework. It focuses on safe I/O, state/scopes, and input events; higher-level libraries can build screen buffers and widgets on top.
 
 - [Contents](#contents)
+- [Why Terminal? (vs `System.Console`)](#why-terminal-vs-systemconsole)
 - [Getting started](#getting-started)
   - [Initialization](#initialization)
 - [Capabilities and backends](#capabilities-and-backends)
@@ -49,6 +50,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
 ## Contents
 
 - Getting started
+- Why Terminal? (vs `System.Console`)
 - Capabilities and backends
 - Output (plain, ANSI, markup, atomic writes)
 - Console-like state (title, colors/style, cursor/window)
@@ -58,6 +60,35 @@ It keeps a familiar Console-like surface while adding terminal-native features t
 - Scopes (restore-on-dispose)
 - Testing (in-memory backend)
 - Samples
+
+## Why Terminal? (vs `System.Console`)
+
+`System.Console` is great for simple apps, but it is not designed as a terminal UI foundation. Many features that modern terminals support are either missing entirely or require piecing together platform-specific code.
+
+XenoAtom.Terminal is intentionally shaped for TUI/CLI apps:
+
+- Keeps a familiar, Console-like surface (`Write`, `ReadKey`, cursor, colors).
+- Adds terminal-native features (ANSI/VT output control, mouse/paste events, alternate screen).
+- Provides a unified, async event stream for input (ideal for TUIs).
+- Makes terminal state changes safe via restore-on-dispose scopes.
+- Makes testing easy via backends (including an in-memory backend).
+
+### What Terminal adds over `System.Console`
+
+| Feature | XenoAtom.Terminal | `System.Console` |
+|---|---|---|
+| Atomic, ANSI-safe output | Yes (serialized writers + `WriteAtomic`) | No |
+| Markup and styling | Yes (`WriteMarkup`, `AnsiStyle`, `AnsiColor`) | No |
+| Hyperlinks (OSC 8) | Yes (when ANSI is enabled) | No |
+| Alternate screen + cursor scopes | Yes (`UseAlternateScreen`, `HideCursor`, `UseRawMode`, …) | No |
+| Unified async input events | Yes (`ReadEventsAsync`) | No |
+| Mouse events | Yes (opt-in; when supported) | No |
+| Bracketed paste as an event | Yes (opt-in; when supported) | No |
+| Resize events stream | Yes | Polling only (`WindowWidth`/`WindowHeight`) |
+| Rich `ReadLine` editor | Yes (history, selection, completion, clipboard, rendering) | Basic line input |
+| Clipboard API | Yes (`Terminal.Clipboard`) | No |
+| Capability detection | Yes (`Terminal.Capabilities`) | Limited |
+| Testable backends | Yes (virtual + in-memory) | No |
 
 ## Getting started
 
