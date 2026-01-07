@@ -15,6 +15,9 @@ namespace XenoAtom.Terminal;
 /// </summary>
 public sealed partial class TerminalInstance : IDisposable
 {
+    [ThreadStatic]
+    private static OutputCaptureContext? _outputCapture;
+
     private readonly Lock _outputLock = new();
     private readonly Lock _defaultInputQueueLock = new();
     private readonly Queue<TerminalEvent> _defaultInputQueue = new();
@@ -125,7 +128,7 @@ public sealed partial class TerminalInstance : IDisposable
     /// </remarks>
     public AnsiStyle Style
     {
-        get => _style;
+        get => _outputCapture?.Style ?? _style;
         set => SetStyleCore(value);
     }
 
@@ -134,8 +137,8 @@ public sealed partial class TerminalInstance : IDisposable
     /// </summary>
     public AnsiColor ForegroundColor
     {
-        get => _style.Foreground ?? AnsiColor.Default;
-        set => SetStyleCore(_style.WithForeground(value));
+        get => (Style.Foreground ?? AnsiColor.Default);
+        set => SetStyleCore(Style.WithForeground(value));
     }
 
     /// <summary>
@@ -143,8 +146,8 @@ public sealed partial class TerminalInstance : IDisposable
     /// </summary>
     public AnsiColor BackgroundColor
     {
-        get => _style.Background ?? AnsiColor.Default;
-        set => SetStyleCore(_style.WithBackground(value));
+        get => (Style.Background ?? AnsiColor.Default);
+        set => SetStyleCore(Style.WithBackground(value));
     }
 
     /// <summary>
@@ -152,8 +155,8 @@ public sealed partial class TerminalInstance : IDisposable
     /// </summary>
     public AnsiDecorations Decorations
     {
-        get => _style.Decorations;
-        set => SetStyleCore(_style.WithDecorations(value));
+        get => Style.Decorations;
+        set => SetStyleCore(Style.WithDecorations(value));
     }
 
     /// <summary>
@@ -297,7 +300,7 @@ public sealed partial class TerminalInstance : IDisposable
         {
             lock (_outputLock)
             {
-                _writerUnsafe!.CursorPosition(position.Row + 1, position.Column + 1);
+                GetAnsiWriterUnsafe().CursorPosition(position.Row + 1, position.Column + 1);
             }
             return;
         }
@@ -344,7 +347,7 @@ public sealed partial class TerminalInstance : IDisposable
         {
             lock (_outputLock)
             {
-                _writerUnsafe!.ShowCursor(visible);
+                GetAnsiWriterUnsafe().ShowCursor(visible);
             }
             return;
         }
@@ -375,14 +378,14 @@ public sealed partial class TerminalInstance : IDisposable
         {
             lock (_outputLock)
             {
-                _writerUnsafe!.SaveCursorPosition();
+                GetAnsiWriterUnsafe().SaveCursorPosition();
             }
 
             return TerminalScope.Create(() =>
             {
                 lock (_outputLock)
                 {
-                    _writerUnsafe!.RestoreCursorPosition();
+                    GetAnsiWriterUnsafe().RestoreCursorPosition();
                 }
             });
         }
@@ -591,7 +594,7 @@ public sealed partial class TerminalInstance : IDisposable
         ArgumentNullException.ThrowIfNull(text);
         lock (_outputLock)
         {
-            _rawOut!.Write(text);
+            GetRawOutUnsafe().Write(text);
         }
         return this;
     }
@@ -605,7 +608,7 @@ public sealed partial class TerminalInstance : IDisposable
     {
         lock (_outputLock)
         {
-            _rawOut!.Write(text);
+            GetRawOutUnsafe().Write(text);
         }
         return this;
     }
@@ -619,7 +622,7 @@ public sealed partial class TerminalInstance : IDisposable
     {
         lock (_outputLock)
         {
-            _rawOut!.WriteLine(text);
+            GetRawOutUnsafe().WriteLine(text);
         }
         return this;
     }
@@ -633,8 +636,9 @@ public sealed partial class TerminalInstance : IDisposable
     {
         lock (_outputLock)
         {
-            _rawOut!.Write(text);
-            _rawOut!.WriteLine();
+            var outWriter = GetRawOutUnsafe();
+            outWriter.Write(text);
+            outWriter.WriteLine();
         }
         return this;
     }
@@ -650,7 +654,7 @@ public sealed partial class TerminalInstance : IDisposable
         SetStyleCore(AnsiStyle.Default);
         lock (_outputLock)
         {
-            _markupUnsafe!.Write(markup.AsSpan());
+            GetMarkupUnsafe().Write(markup.AsSpan());
         }
         return this;
     }
@@ -665,7 +669,7 @@ public sealed partial class TerminalInstance : IDisposable
         SetStyleCore(AnsiStyle.Default);
         lock (_outputLock)
         {
-            _markupUnsafe!.Write(markup);
+            GetMarkupUnsafe().Write(markup);
         }
         return this;
     }
@@ -680,7 +684,7 @@ public sealed partial class TerminalInstance : IDisposable
         SetStyleCore(AnsiStyle.Default);
         lock (_outputLock)
         {
-            _markupUnsafe!.Write(ref markup);
+            GetMarkupUnsafe().Write(ref markup);
         }
         return this;
     }
@@ -707,8 +711,8 @@ public sealed partial class TerminalInstance : IDisposable
         SetStyleCore(AnsiStyle.Default);
         lock (_outputLock)
         {
-            _markupUnsafe!.Write(ref markup);
-            _rawOut!.WriteLine();
+            GetMarkupUnsafe().Write(ref markup);
+            GetRawOutUnsafe().WriteLine();
         }
         return this;
     }
@@ -740,7 +744,7 @@ public sealed partial class TerminalInstance : IDisposable
         ArgumentNullException.ThrowIfNull(write);
         lock (_outputLock)
         {
-            write(_writerUnsafe!);
+            write(GetAnsiWriterUnsafe());
         }
     }
 
@@ -753,7 +757,7 @@ public sealed partial class TerminalInstance : IDisposable
         ArgumentNullException.ThrowIfNull(write);
         lock (_outputLock)
         {
-            write(_rawOut!);
+            write(GetRawOutUnsafe());
         }
     }
 
@@ -1560,17 +1564,19 @@ public sealed partial class TerminalInstance : IDisposable
 
     private void SetStyleCore(AnsiStyle style)
     {
-        var next = style.ResolveMissingFrom(_style);
+        var capture = _outputCapture;
+        var previous = capture?.Style ?? _style;
+        var next = style.ResolveMissingFrom(previous);
         lock (_outputLock)
         {
-            if (_writerUnsafe is null)
+            if (_writerUnsafe is null || _ansiCapabilities is null)
             {
                 throw new InvalidOperationException("Terminal is not initialized.");
             }
 
             if (Capabilities.AnsiEnabled)
             {
-                _writerUnsafe.StyleTransition(_style, next);
+                GetAnsiWriterUnsafe().StyleTransition(previous, next);
             }
             else
             {
@@ -1578,7 +1584,102 @@ public sealed partial class TerminalInstance : IDisposable
             }
         }
 
-        _style = next;
+        if (capture is not null)
+        {
+            capture.Style = next;
+        }
+        else
+        {
+            _style = next;
+        }
+    }
+
+    /// <summary>
+    /// Captures all terminal output performed on the current thread into the provided <see cref="AnsiBuilder"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is primarily useful for scenarios that need to interleave regular terminal output with an inline
+    /// "live" region (e.g. a terminal UI host), so that writes can be replayed above the live region in a single
+    /// atomic operation.
+    /// </remarks>
+    /// <param name="builder">The builder receiving the captured ANSI/text output.</param>
+    /// <returns>A scope that ends the capture when disposed.</returns>
+    public TerminalOutputCaptureScope CaptureOutput(AnsiBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        if (!_isInitialized || _ansiCapabilities is null)
+        {
+            throw new InvalidOperationException("Terminal is not initialized.");
+        }
+
+        return new TerminalOutputCaptureScope(this, builder);
+    }
+
+    private TextWriter GetRawOutUnsafe()
+        => _outputCapture?.RawOut ?? _rawOut ?? throw new InvalidOperationException("Terminal is not initialized.");
+
+    private AnsiWriter GetAnsiWriterUnsafe()
+        => _outputCapture?.Writer ?? _writerUnsafe ?? throw new InvalidOperationException("Terminal is not initialized.");
+
+    private AnsiMarkup GetMarkupUnsafe()
+        => _outputCapture?.Markup ?? _markupUnsafe ?? throw new InvalidOperationException("Terminal is not initialized.");
+
+    private sealed class OutputCaptureContext
+    {
+        public OutputCaptureContext(AnsiBuilder builder, AnsiCapabilities capabilities, AnsiStyle initialStyle)
+        {
+            Builder = builder;
+            RawOut = new AnsiBuilderTextWriter(builder);
+            Writer = new AnsiWriter(builder, capabilities);
+            Markup = new AnsiMarkup(Writer);
+            Style = initialStyle;
+        }
+
+        public AnsiBuilder Builder { get; }
+        public TextWriter RawOut { get; }
+        public AnsiWriter Writer { get; }
+        public AnsiMarkup Markup { get; }
+        public AnsiStyle Style { get; set; }
+    }
+
+    /// <summary>
+    /// A scope that captures terminal output for the current thread.
+    /// </summary>
+    public readonly struct TerminalOutputCaptureScope : IDisposable
+    {
+        private readonly OutputCaptureContext? _previous;
+        private readonly TerminalInstance _terminal;
+
+        internal TerminalOutputCaptureScope(TerminalInstance terminal, AnsiBuilder builder)
+        {
+            _terminal = terminal;
+            _previous = _outputCapture;
+            builder.Clear();
+            _outputCapture = new OutputCaptureContext(builder, terminal._ansiCapabilities!, terminal._style);
+        }
+
+        /// <summary>
+        /// Gets the builder receiving the captured output.
+        /// </summary>
+        public AnsiBuilder Builder => _outputCapture?.Builder ?? throw new InvalidOperationException("No active capture.");
+
+        /// <summary>
+        /// Gets a span over the captured content.
+        /// </summary>
+        public ReadOnlySpan<char> GetCapturedSpan() => Builder.UnsafeAsSpan();
+
+        /// <summary>
+        /// Gets a value indicating whether any output has been captured.
+        /// </summary>
+        public bool HasOutput => Builder.Length > 0;
+
+        /// <summary>
+        /// Ends the capture.
+        /// </summary>
+        public void Dispose()
+        {
+            _outputCapture = _previous;
+        }
     }
 
     private void ApplyColorFallback(AnsiStyle style)
