@@ -482,6 +482,20 @@ var options = new TerminalReadLineOptions
 };
 ```
 
+For Ctrl+letter bindings, use `TerminalChar` for readability:
+
+```csharp
+bindings.BindChar(TerminalChar.CtrlA, TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorHome);
+bindings.BindChar(TerminalChar.Ctrl('E'), TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorEnd);
+```
+
+`TerminalKeyGesture` can also format and parse gestures:
+
+```csharp
+var gesture = TerminalKeyGesture.Parse("CTRL+R");
+Console.WriteLine(gesture); // CTRL+R
+```
+
 ### Text utilities (cell width, word boundaries)
 
 For higher-level controls (layout, clipping, hit testing), use `TerminalTextUtility`:

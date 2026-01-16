@@ -38,8 +38,8 @@ public sealed class TerminalReadLineKeyBindings
         // History.
         b.Bind(TerminalKey.Up, TerminalModifiers.None, TerminalReadLineCommand.HistoryPrevious);
         b.Bind(TerminalKey.Down, TerminalModifiers.None, TerminalReadLineCommand.HistoryNext);
-        b.BindChar('\x10', TerminalModifiers.Ctrl, TerminalReadLineCommand.HistoryPrevious); // Ctrl+P
-        b.BindChar('\x0E', TerminalModifiers.Ctrl, TerminalReadLineCommand.HistoryNext); // Ctrl+N
+        b.BindChar(TerminalChar.CtrlP, TerminalModifiers.Ctrl, TerminalReadLineCommand.HistoryPrevious); // Ctrl+P
+        b.BindChar(TerminalChar.CtrlN, TerminalModifiers.Ctrl, TerminalReadLineCommand.HistoryNext); // Ctrl+N
 
         // Editing.
         b.Bind(TerminalKey.Backspace, TerminalModifiers.None, TerminalReadLineCommand.DeleteBackward);
@@ -47,28 +47,28 @@ public sealed class TerminalReadLineKeyBindings
         b.Bind(TerminalKey.Backspace, TerminalModifiers.Ctrl, TerminalReadLineCommand.DeleteWordBackward);
         b.Bind(TerminalKey.Delete, TerminalModifiers.Ctrl, TerminalReadLineCommand.DeleteWordForward);
         b.BindChar('d', TerminalModifiers.Alt, TerminalReadLineCommand.KillWordRight);
-        b.BindChar('\x01', TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorHome); // Ctrl+A
-        b.BindChar('\x05', TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorEnd); // Ctrl+E
-        b.BindChar('\x02', TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorLeft); // Ctrl+B
-        b.BindChar('\x06', TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorRight); // Ctrl+F
+        b.BindChar(TerminalChar.CtrlA, TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorHome); // Ctrl+A
+        b.BindChar(TerminalChar.CtrlE, TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorEnd); // Ctrl+E
+        b.BindChar(TerminalChar.CtrlB, TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorLeft); // Ctrl+B
+        b.BindChar(TerminalChar.CtrlF, TerminalModifiers.Ctrl, TerminalReadLineCommand.CursorRight); // Ctrl+F
 
         // Clipboard / selection.
-        b.BindChar('\x03', TerminalModifiers.Ctrl, TerminalReadLineCommand.CopySelectionOrCancel); // Ctrl+C
-        b.BindChar('\x18', TerminalModifiers.Ctrl, TerminalReadLineCommand.CutSelectionOrAll); // Ctrl+X
-        b.BindChar('\x16', TerminalModifiers.Ctrl, TerminalReadLineCommand.Paste); // Ctrl+V
-        b.BindChar('\x0B', TerminalModifiers.Ctrl, TerminalReadLineCommand.KillToEnd); // Ctrl+K
-        b.BindChar('\x15', TerminalModifiers.Ctrl, TerminalReadLineCommand.KillToStart); // Ctrl+U
-        b.BindChar('\x17', TerminalModifiers.Ctrl, TerminalReadLineCommand.KillWordLeft); // Ctrl+W
+        b.BindChar(TerminalChar.CtrlC, TerminalModifiers.Ctrl, TerminalReadLineCommand.CopySelectionOrCancel); // Ctrl+C
+        b.BindChar(TerminalChar.CtrlX, TerminalModifiers.Ctrl, TerminalReadLineCommand.CutSelectionOrAll); // Ctrl+X
+        b.BindChar(TerminalChar.CtrlV, TerminalModifiers.Ctrl, TerminalReadLineCommand.Paste); // Ctrl+V
+        b.BindChar(TerminalChar.CtrlK, TerminalModifiers.Ctrl, TerminalReadLineCommand.KillToEnd); // Ctrl+K
+        b.BindChar(TerminalChar.CtrlU, TerminalModifiers.Ctrl, TerminalReadLineCommand.KillToStart); // Ctrl+U
+        b.BindChar(TerminalChar.CtrlW, TerminalModifiers.Ctrl, TerminalReadLineCommand.KillWordLeft); // Ctrl+W
 
         // Clear screen.
-        b.BindChar('\x0C', TerminalModifiers.Ctrl, TerminalReadLineCommand.ClearScreen); // Ctrl+L
+        b.BindChar(TerminalChar.CtrlL, TerminalModifiers.Ctrl, TerminalReadLineCommand.ClearScreen); // Ctrl+L
 
         // Undo/redo.
-        b.BindChar('\x1A', TerminalModifiers.Ctrl, TerminalReadLineCommand.Undo); // Ctrl+Z
-        b.BindChar('\x19', TerminalModifiers.Ctrl, TerminalReadLineCommand.Redo); // Ctrl+Y
+        b.BindChar(TerminalChar.CtrlZ, TerminalModifiers.Ctrl, TerminalReadLineCommand.Undo); // Ctrl+Z
+        b.BindChar(TerminalChar.CtrlY, TerminalModifiers.Ctrl, TerminalReadLineCommand.Redo); // Ctrl+Y
 
         // Reverse search.
-        b.BindChar('\x12', TerminalModifiers.Ctrl, TerminalReadLineCommand.ReverseSearch); // Ctrl+R
+        b.BindChar(TerminalChar.CtrlR, TerminalModifiers.Ctrl, TerminalReadLineCommand.ReverseSearch); // Ctrl+R
 
         return b;
     }

@@ -115,7 +115,7 @@ public sealed class VtInputDecoderTests
         using var decoder = new VtInputDecoder();
         using var broadcaster = new TerminalEventBroadcaster();
 
-        decoder.Decode("\x03".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions { CaptureCtrlC = true, TreatControlCAsInput = false }, broadcaster);
+        decoder.Decode(TerminalChar.CtrlC.ToString().AsSpan(), isFinalChunk: true, options: new TerminalInputOptions { CaptureCtrlC = true, TreatControlCAsInput = false }, broadcaster);
 
         Assert.IsTrue(broadcaster.TryReadEvent(out var first));
         Assert.IsInstanceOfType(first, typeof(TerminalSignalEvent));
@@ -123,6 +123,6 @@ public sealed class VtInputDecoderTests
 
         Assert.IsTrue(broadcaster.TryReadEvent(out var second));
         Assert.IsInstanceOfType(second, typeof(TerminalKeyEvent));
-        Assert.AreEqual('\x03', ((TerminalKeyEvent)second).Char);
+        Assert.AreEqual(TerminalChar.CtrlC, ((TerminalKeyEvent)second).Char);
     }
 }

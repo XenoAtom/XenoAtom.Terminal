@@ -102,7 +102,7 @@ public static class Program
                 '\r' => "\\r (CR, U+000D)",
                 '\x1b' => "\\e (ESC, U+001B)",
                 '\x7f' => "DEL (U+007F)",
-                _ when c <= '\x1A' => $"^{(char)('@' + c)} (U+{(int)c:X4})",
+                _ when c <= TerminalChar.CtrlZ => $"^{(char)('@' + c)} (U+{(int)c:X4})",
                 _ => $"CTRL (U+{(int)c:X4})",
             };
         }

@@ -91,9 +91,9 @@ public sealed partial class TerminalInstance
                 case TerminalKeyEvent key when key.Modifiers.HasFlag(TerminalModifiers.Ctrl) && key.Char is { } ch:
                     switch (ch)
                     {
-                        case '\x03': // Ctrl+C
+                        case TerminalChar.CtrlC: // Ctrl+C
                             throw new OperationCanceledException("ReadLine canceled by Ctrl+C.");
-                        case '\x16': // Ctrl+V
+                        case TerminalChar.CtrlV: // Ctrl+V
                             if (Clipboard.TryGetText(out var clipboardText) && !string.IsNullOrEmpty(clipboardText))
                             {
                                 if (AppendText(clipboardText, buffer, options))
@@ -103,7 +103,7 @@ public sealed partial class TerminalInstance
                                 }
                             }
                             break;
-                        case '\x18': // Ctrl+X
+                        case TerminalChar.CtrlX: // Ctrl+X
                             if (buffer.Count > 0)
                             {
                                 var span = CollectionsMarshal.AsSpan(buffer);
@@ -430,7 +430,7 @@ public sealed partial class TerminalInstance
                     break;
 
                 case TerminalKeyEvent key:
-                    if (key.Char is '\x04' && buffer.Count == 0)
+                    if (key.Char is TerminalChar.CtrlD && buffer.Count == 0)
                     {
                         // Ctrl+D on an empty line behaves like EOF.
                         return null;
@@ -689,7 +689,7 @@ public sealed partial class TerminalInstance
                 return CaptureSnapshot();
             }
 
-            if (key.Modifiers.HasFlag(TerminalModifiers.Ctrl) && key.Char is >= '\x01' and <= '\x1A')
+            if (key.Modifiers.HasFlag(TerminalModifiers.Ctrl) && key.Char is >= TerminalChar.CtrlA and <= TerminalChar.CtrlZ)
             {
                 return CaptureSnapshot();
             }
@@ -1291,7 +1291,7 @@ public sealed partial class TerminalInstance
             }
 
             // Ctrl-modified behavior.
-            if (key.Char is { } ch && (key.Modifiers.HasFlag(TerminalModifiers.Ctrl) || (ch is >= '\x01' and <= '\x1A')))
+            if (key.Char is { } ch && (key.Modifiers.HasFlag(TerminalModifiers.Ctrl) || (ch is >= TerminalChar.CtrlA and <= TerminalChar.CtrlZ)))
             {
                 return HandleCtrlKey(ch);
             }
@@ -1596,23 +1596,23 @@ public sealed partial class TerminalInstance
         {
             switch (ch)
             {
-                case '\x01': // Ctrl+A
+                case TerminalChar.CtrlA: // Ctrl+A
                     controller.SetCursorIndex(0, extendSelection: false);
                     return true;
-                case '\x05': // Ctrl+E
+                case TerminalChar.CtrlE: // Ctrl+E
                     controller.SetCursorIndex(buffer.Count, extendSelection: false);
                     return true;
-                case '\x02': // Ctrl+B
+                case TerminalChar.CtrlB: // Ctrl+B
                     controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
-                case '\x06': // Ctrl+F
+                case TerminalChar.CtrlF: // Ctrl+F
                     controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
-                case '\x10': // Ctrl+P
+                case TerminalChar.CtrlP: // Ctrl+P
                     return options.EnableHistory && NavigateHistory(-1);
-                case '\x0E': // Ctrl+N
+                case TerminalChar.CtrlN: // Ctrl+N
                     return options.EnableHistory && NavigateHistory(+1);
-                case '\x0B': // Ctrl+K
+                case TerminalChar.CtrlK: // Ctrl+K
                     controller.ClearSelection();
                     if (controller.CursorIndex < buffer.Count)
                     {
@@ -1623,7 +1623,7 @@ public sealed partial class TerminalInstance
                         return true;
                     }
                     return false;
-                case '\x15': // Ctrl+U
+                case TerminalChar.CtrlU: // Ctrl+U
                     controller.ClearSelection();
                     if (controller.CursorIndex > 0)
                     {
@@ -1635,7 +1635,7 @@ public sealed partial class TerminalInstance
                         return true;
                     }
                     return false;
-                case '\x17': // Ctrl+W
+                case TerminalChar.CtrlW: // Ctrl+W
                     controller.ClearSelection();
                     if (controller.CursorIndex > 0)
                     {
@@ -1648,7 +1648,7 @@ public sealed partial class TerminalInstance
                         return true;
                     }
                     return false;
-                case '\x18': // Ctrl+X
+                case TerminalChar.CtrlX: // Ctrl+X
                     if (buffer.Count > 0)
                     {
                         ReadOnlySpan<char> cutSpan;
@@ -1668,7 +1668,7 @@ public sealed partial class TerminalInstance
                         return true;
                     }
                     return false;
-                case '\x16': // Ctrl+V
+                case TerminalChar.CtrlV: // Ctrl+V
                     if (Clipboard.TryGetText(out var clipboardText) && !string.IsNullOrEmpty(clipboardText))
                     {
                         if (InsertText(clipboardText.AsSpan(), out _))
@@ -1688,7 +1688,7 @@ public sealed partial class TerminalInstance
                     }
 
                     return false;
-                case '\x03': // Ctrl+C
+                case TerminalChar.CtrlC: // Ctrl+C
                     if (controller.HasSelection)
                     {
                         var selection = CollectionsMarshal.AsSpan(buffer).Slice(controller.SelectionStart, controller.SelectionLength);
@@ -1697,7 +1697,7 @@ public sealed partial class TerminalInstance
                         return true;
                     }
                     throw new OperationCanceledException("ReadLine canceled by Ctrl+C.");
-                case '\x0C': // Ctrl+L
+                case TerminalChar.CtrlL: // Ctrl+L
                     Clear(TerminalClearKind.Screen);
                     RenderIfEcho();
                     return true;

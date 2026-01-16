@@ -1316,7 +1316,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             if (!wasDown && i == 0 && ch is not null)
             {
                 // When ENABLE_PROCESSED_INPUT is disabled (raw), Ctrl+C may come through as a key event.
-                if (_inputOptions?.TreatControlCAsInput != true && _inputOptions?.CaptureCtrlC == true && ch == '\x03' && modifiers.HasFlag(TerminalModifiers.Ctrl))
+                if (_inputOptions?.TreatControlCAsInput != true && _inputOptions?.CaptureCtrlC == true && ch == TerminalChar.CtrlC && modifiers.HasFlag(TerminalModifiers.Ctrl))
                 {
                     _events.Publish(new TerminalSignalEvent { Kind = TerminalSignalKind.Interrupt });
                 }

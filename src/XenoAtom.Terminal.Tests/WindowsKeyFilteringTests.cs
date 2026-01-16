@@ -21,7 +21,7 @@ public sealed class WindowsKeyFilteringTests
     public void IsStandaloneModifierKey_DoesNotFilterWhenCharIsPresent()
     {
         Assert.IsFalse(TerminalWindowsKeyFiltering.IsStandaloneModifierKey(0x10, ch: 'A'));
-        Assert.IsFalse(TerminalWindowsKeyFiltering.IsStandaloneModifierKey(0x11, ch: '\x03'));
+        Assert.IsFalse(TerminalWindowsKeyFiltering.IsStandaloneModifierKey(0x11, ch: TerminalChar.CtrlC));
         Assert.IsFalse(TerminalWindowsKeyFiltering.IsStandaloneModifierKey(0x12, ch: 'a'));
     }
 

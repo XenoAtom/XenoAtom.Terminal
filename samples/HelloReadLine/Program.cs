@@ -163,7 +163,7 @@ public static class Program
     private static void HandleKey(TerminalReadLineController controller, TerminalKeyEvent key)
     {
         // Ctrl+O inserts a timestamp (example of a custom key binding).
-        if (key.Key == TerminalKey.Unknown && key.Char == '\x0F')
+        if (key.Key == TerminalKey.Unknown && key.Char == TerminalChar.CtrlO)
         {
             controller.Insert((DateTimeOffset.Now.ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture) + " ").AsSpan());
             return;

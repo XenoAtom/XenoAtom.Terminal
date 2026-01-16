@@ -81,9 +81,9 @@ public sealed class TerminalReadLineEditorTests
 
         backend.PushEvent(new TerminalTextEvent { Text = "abc" });
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Backspace });
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x1A', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+Z
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlZ, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+Z
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.F1 });
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x19', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+Y
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlY, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+Y
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.F1 });
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
 
@@ -104,7 +104,7 @@ public sealed class TerminalReadLineEditorTests
         options.History.Add("foo", options.HistoryCapacity);
 
         var task = Terminal.ReadLineAsync(options).AsTask();
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x12', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+R
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlR, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+R
         backend.PushEvent(new TerminalTextEvent { Text = "se" });
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter }); // accept match
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter }); // accept line
@@ -142,8 +142,8 @@ public sealed class TerminalReadLineEditorTests
         var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
 
         backend.PushEvent(new TerminalTextEvent { Text = "abc" });
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x18', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+X
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x16', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+V
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlX, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+X
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlV, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+V
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
 
         Assert.AreEqual("abc", await task);
@@ -161,9 +161,9 @@ public sealed class TerminalReadLineEditorTests
         backend.PushEvent(new TerminalTextEvent { Text = "abc" });
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left, Modifiers = TerminalModifiers.Shift });
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left, Modifiers = TerminalModifiers.Shift });
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x03', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+C
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlC, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+C
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.End });
-        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = '\x16', Modifiers = TerminalModifiers.Ctrl }); // Ctrl+V
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Unknown, Char = TerminalChar.CtrlV, Modifiers = TerminalModifiers.Ctrl }); // Ctrl+V
         backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
 
         Assert.AreEqual("abcbc", await task);

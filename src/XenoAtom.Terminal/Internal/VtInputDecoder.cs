@@ -69,7 +69,7 @@ internal sealed class VtInputDecoder : IDisposable
 
             if (token is ControlToken control)
             {
-                if (captureCtrlC && control.Control == '\x03')
+                if (captureCtrlC && control.Control == TerminalChar.CtrlC)
                 {
                     events.Publish(new TerminalSignalEvent { Kind = TerminalSignalKind.Interrupt });
                 }
@@ -133,7 +133,7 @@ internal sealed class VtInputDecoder : IDisposable
         }
 
         // Common Ctrl+A..Z range.
-        if (token.Control is >= '\x01' and <= '\x1A')
+        if (token.Control is >= TerminalChar.CtrlA and <= TerminalChar.CtrlZ)
         {
             ev = new TerminalKeyEvent
             {
@@ -250,12 +250,12 @@ internal sealed class VtInputDecoder : IDisposable
 
         foreach (var ch in text)
         {
-            if (captureCtrlC && ch == '\x03')
+            if (captureCtrlC && ch == TerminalChar.CtrlC)
             {
                 events.Publish(new TerminalSignalEvent { Kind = TerminalSignalKind.Interrupt });
             }
 
-            var modifiers = ch is >= '\x01' and <= '\x1A' ? TerminalModifiers.Ctrl : TerminalModifiers.None;
+            var modifiers = ch is >= TerminalChar.CtrlA and <= TerminalChar.CtrlZ ? TerminalModifiers.Ctrl : TerminalModifiers.None;
             PublishKey(new TerminalKeyEvent
             {
                 Key = TerminalKey.Unknown,
