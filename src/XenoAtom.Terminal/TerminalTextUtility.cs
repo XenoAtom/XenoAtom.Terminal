@@ -3,6 +3,7 @@
 // See license.txt file in the project root for full license information.
 
 using System.Buffers;
+using System.Globalization;
 using System.Text;
 using Wcwidth;
 
@@ -32,15 +33,17 @@ public static class TerminalTextUtility
         var index = 0;
         while (index < text.Length)
         {
-            if (Rune.DecodeFromUtf16(text[index..], out var rune, out var consumed) != OperationStatus.Done || consumed <= 0)
+            var elementLength = StringInfo.GetNextTextElementLength(text[index..]);
+            if (elementLength <= 0)
             {
                 // Replace invalid sequences with U+FFFD.
-                rune = Rune.ReplacementChar;
-                consumed = 1;
+                width += GetRuneWidth(Rune.ReplacementChar, tabWidth);
+                index++;
+                continue;
             }
 
-            width += GetRuneWidth(rune, tabWidth);
-            index += consumed;
+            width += GetTextElementWidth(text.Slice(index, elementLength), tabWidth);
+            index += elementLength;
         }
 
         return width;
@@ -68,7 +71,17 @@ public static class TerminalTextUtility
         }
 
         var w = UnicodeCalculator.GetWidth(rune.Value);
-        return w <= 0 ? 0 : w;
+        w = w <= 0 ? 0 : w;
+
+        // Terminal emulators frequently render emoji/pictographic symbols as wide (2 cells) even when
+        // wcwidth tables report a width of 1. This is especially visible when cursor positioning or
+        // column alignment is computed using the narrower width.
+        if (w == 1 && IsLikelyEmojiScalar(rune.Value))
+        {
+            return 2;
+        }
+
+        return w;
     }
 
     /// <summary>
@@ -123,13 +136,14 @@ public static class TerminalTextUtility
         var i = 0;
         while (i < text.Length)
         {
-            if (Rune.DecodeFromUtf16(text[i..], out var rune, out var consumed) != OperationStatus.Done || consumed <= 0)
+            var elementLength = StringInfo.GetNextTextElementLength(text[i..]);
+            if (elementLength <= 0)
             {
-                rune = Rune.ReplacementChar;
-                consumed = 1;
+                index = i;
+                return true;
             }
 
-            var w = GetRuneWidth(rune, tabWidth);
+            var w = GetTextElementWidth(text.Slice(i, elementLength), tabWidth);
             if (width + w > cellOffset)
             {
                 index = i;
@@ -137,11 +151,69 @@ public static class TerminalTextUtility
             }
 
             width += w;
-            i += consumed;
+            i += elementLength;
         }
 
         index = text.Length;
         return true;
+    }
+
+    private static int GetTextElementWidth(ReadOnlySpan<char> element, int tabWidth)
+    {
+        // A text element (grapheme cluster) can include multiple runes (e.g. ZWJ sequences, VS16, flags).
+        // We treat the element as a single unit and compute a conservative cell width, otherwise
+        // alignment and cursor math can split inside the cluster and drift over time.
+        if (element.IsEmpty)
+        {
+            return 0;
+        }
+
+        if (Rune.DecodeFromUtf16(element, out var first, out var consumed) != OperationStatus.Done || consumed <= 0)
+        {
+            return GetRuneWidth(Rune.ReplacementChar, tabWidth);
+        }
+
+        if (element.Length == consumed)
+        {
+            return GetRuneWidth(first, tabWidth);
+        }
+
+        var maxWidth = GetRuneWidth(first, tabWidth);
+        var hasEmojiPresentationHint = first.Value is 0xFE0F or 0x200D;
+        var index = consumed;
+        while (index < element.Length)
+        {
+            if (Rune.DecodeFromUtf16(element[index..], out var rune, out var c) != OperationStatus.Done || c <= 0)
+            {
+                maxWidth = Math.Max(maxWidth, GetRuneWidth(Rune.ReplacementChar, tabWidth));
+                index++;
+                continue;
+            }
+
+            hasEmojiPresentationHint |= rune.Value is 0xFE0F or 0x200D;
+            maxWidth = Math.Max(maxWidth, GetRuneWidth(rune, tabWidth));
+            index += c;
+        }
+
+        // Emoji presentation selectors (VS16) and ZWJ sequences are commonly rendered as wide glyphs in terminals,
+        // even if the base scalar has a narrow wcwidth value. Treat them as wide to keep column calculations stable.
+        if (maxWidth == 1 && hasEmojiPresentationHint)
+        {
+            return 2;
+        }
+
+        return maxWidth;
+    }
+
+    private static bool IsLikelyEmojiScalar(int scalar)
+    {
+        // A pragmatic approximation: cover the most common emoji/pictographic blocks and symbols.
+        // This is intentionally simple and avoids full UTS#51 processing, while fixing the common
+        // misalignment issues seen in terminal UIs.
+        return scalar is
+                   // Misc Symbols and Pictographs + Emoticons + Transport/Map + Supplemental + Extended-A/B (subset)
+                   >= 0x1F300 and <= 0x1FAFF
+               or >= 0x1F1E6 and <= 0x1F1FF; // Regional indicator symbols (flags)
     }
 
     /// <summary>
