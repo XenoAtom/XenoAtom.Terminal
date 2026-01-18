@@ -508,6 +508,12 @@ var wordStart = TerminalTextUtility.GetWordStart("hello_world".AsSpan(), index: 
 var wordEnd = TerminalTextUtility.GetWordEnd("hello_world".AsSpan(), index: 8);
 ```
 
+Width and hit testing are grapheme-cluster aware (emoji/ZWJ/combining sequences are treated as a single unit):
+
+```csharp
+var emojiCells = TerminalTextUtility.GetWidth("\U0001F5C3\uFE0F".AsSpan()); // 🗃️ => 2
+```
+
 ### Cancellation and newline emission
 
 - Ctrl+C copies the current selection when present; otherwise it cancels the editor (throws `OperationCanceledException`).

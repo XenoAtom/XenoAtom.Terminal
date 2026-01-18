@@ -458,6 +458,23 @@ public class TerminalTests
     }
 
     [TestMethod]
+    public async Task ReadLineAsync_NonEditing_BackspaceDeletesWholeGraphemeCluster()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+
+        var options = new TerminalReadLineOptions { Echo = false, EnableEditing = false };
+        var task = Terminal.ReadLineAsync(options).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "a\U0001F5C3\uFE0Fb" }); // a🗃️b
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Backspace }); // deletes b
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Backspace }); // deletes 🗃️ as a cluster
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("a", await task);
+    }
+
+    [TestMethod]
     public async Task ReadLineAsync_PasteWithNewlineCompletes()
     {
         var backend = new InMemoryTerminalBackend();

@@ -485,6 +485,58 @@ public sealed class TerminalReadLineEditorTests
     }
 
     [TestMethod]
+    public async Task ReadLineAsync_EmojiGrapheme_BackspaceDeletesWholeCluster()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
+
+        var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "a\U0001F5C3\uFE0Fb" }); // a🗃️b
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left }); // before 'b'
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Backspace }); // delete 🗃️ (as one text element)
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("ab", await task);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_EmojiGrapheme_DeleteDeletesWholeCluster()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
+
+        var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "a\U0001F5C3\uFE0Fb" }); // a🗃️b
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left }); // before 'b'
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left }); // before 🗃️
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Delete }); // delete 🗃️ (as one text element)
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("ab", await task);
+    }
+
+    [TestMethod]
+    public async Task ReadLineAsync_EmojiGrapheme_BackspaceDeletesZwjSequenceAsOneCluster()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+        Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = false, MouseMode = TerminalMouseMode.Off });
+
+        var task = Terminal.ReadLineAsync(new TerminalReadLineOptions { Echo = false, EnableEditing = true }).AsTask();
+
+        backend.PushEvent(new TerminalTextEvent { Text = "a\U0001F3C3\u200D\u2640\uFE0Fb" }); // a🏃‍♀️b
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Left }); // before 'b'
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Backspace }); // delete 🏃‍♀️
+        backend.PushEvent(new TerminalKeyEvent { Key = TerminalKey.Enter });
+
+        Assert.AreEqual("ab", await task);
+    }
+
+    [TestMethod]
     public async Task ReadLineAsync_Render_DoesNotChangeCursorVisibility()
     {
         var backend = new InMemoryTerminalBackend();

@@ -82,7 +82,7 @@ public sealed partial class TerminalInstance
                     return new string(CollectionsMarshal.AsSpan(buffer));
 
                 case TerminalKeyEvent { Key: TerminalKey.Backspace }:
-                    if (RemoveLastRune(buffer) && options.Echo)
+                    if (RemoveLastTextElement(buffer) && options.Echo)
                     {
                         WriteAtomic(static (TextWriter w) => w.Write("\b \b"));
                     }
@@ -184,23 +184,17 @@ public sealed partial class TerminalInstance
             return completed;
         }
 
-        static bool RemoveLastRune(List<char> buffer)
+        static bool RemoveLastTextElement(List<char> buffer)
         {
             if (buffer.Count == 0)
             {
                 return false;
             }
 
-            var lastIndex = buffer.Count - 1;
-            var last = buffer[lastIndex];
-            if (char.IsLowSurrogate(last) && lastIndex > 0 && char.IsHighSurrogate(buffer[lastIndex - 1]))
-            {
-                buffer.RemoveAt(lastIndex);
-                buffer.RemoveAt(lastIndex - 1);
-                return true;
-            }
-
-            buffer.RemoveAt(lastIndex);
+            var span = CollectionsMarshal.AsSpan(buffer);
+            var start = TerminalTextUtility.GetPreviousTextElementIndex(span, span.Length);
+            start = Math.Clamp(start, 0, buffer.Count - 1);
+            buffer.RemoveRange(start, buffer.Count - start);
             return true;
         }
 
@@ -838,17 +832,17 @@ public sealed partial class TerminalInstance
                 return true;
             }
 
-            if (key.Key == TerminalKey.Backspace || (key.Char is '\b' && key.Key == TerminalKey.Unknown))
-            {
-                if (reverseSearchCursor > 0 && reverseSearchQuery.Length > 0)
-                {
-                    var prev = TerminalTextUtility.GetPreviousRuneIndex(reverseSearchQuery.AsSpan(), reverseSearchCursor);
-                    reverseSearchQuery = reverseSearchQuery.Remove(prev, reverseSearchCursor - prev);
-                    reverseSearchCursor = prev;
-                    FindReverseSearchMatch(options.History.Count - 1);
-                }
-                return true;
-            }
+                    if (key.Key == TerminalKey.Backspace || (key.Char is '\b' && key.Key == TerminalKey.Unknown))
+                    {
+                        if (reverseSearchCursor > 0 && reverseSearchQuery.Length > 0)
+                        {
+                            var prev = TerminalTextUtility.GetPreviousTextElementIndex(reverseSearchQuery.AsSpan(), reverseSearchCursor);
+                            reverseSearchQuery = reverseSearchQuery.Remove(prev, reverseSearchCursor - prev);
+                            reverseSearchCursor = prev;
+                            FindReverseSearchMatch(options.History.Count - 1);
+                        }
+                        return true;
+                    }
 
             return false;
         }
@@ -1065,11 +1059,11 @@ public sealed partial class TerminalInstance
                 var probe = Math.Clamp(clickIndex, 0, text.Length);
                 if (probe == text.Length && probe > 0)
                 {
-                    probe = TerminalTextUtility.GetPreviousRuneIndex(text, probe);
+                    probe = TerminalTextUtility.GetPreviousTextElementIndex(text, probe);
                 }
                 else if (probe < text.Length && char.IsWhiteSpace(text[probe]) && probe > 0)
                 {
-                    probe = TerminalTextUtility.GetPreviousRuneIndex(text, probe);
+                    probe = TerminalTextUtility.GetPreviousTextElementIndex(text, probe);
                 }
 
                 probe = Math.Clamp(probe, 0, Math.Max(0, text.Length - 1));
@@ -1078,7 +1072,7 @@ public sealed partial class TerminalInstance
                 var start = probe;
                 while (start > 0)
                 {
-                    var prev = TerminalTextUtility.GetPreviousRuneIndex(text, start);
+                    var prev = TerminalTextUtility.GetPreviousTextElementIndex(text, start);
                     if (char.IsWhiteSpace(text[prev]) != isWhitespace)
                     {
                         break;
@@ -1086,14 +1080,14 @@ public sealed partial class TerminalInstance
                     start = prev;
                 }
 
-                var endExclusive = TerminalTextUtility.GetNextRuneIndex(text, probe);
+                var endExclusive = TerminalTextUtility.GetNextTextElementIndex(text, probe);
                 while (endExclusive < text.Length)
                 {
                     if (char.IsWhiteSpace(text[endExclusive]) != isWhitespace)
                     {
                         break;
                     }
-                    endExclusive = TerminalTextUtility.GetNextRuneIndex(text, endExclusive);
+                    endExclusive = TerminalTextUtility.GetNextTextElementIndex(text, endExclusive);
                 }
 
                 controller.Select(start, endExclusive);
@@ -1199,8 +1193,8 @@ public sealed partial class TerminalInstance
                 if (shift)
                 {
                     var newIndex = key.Key == TerminalKey.Left
-                        ? TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
-                        : TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
+                        ? TerminalTextUtility.GetPreviousTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex)
+                        : TerminalTextUtility.GetNextTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex);
                     controller.SetCursorIndex(newIndex, extendSelection: true);
                     return true;
                 }
@@ -1209,10 +1203,10 @@ public sealed partial class TerminalInstance
             switch (key.Key)
             {
                 case TerminalKey.Left:
-                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalKey.Right:
-                    controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetNextTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalKey.Home:
                     controller.SetCursorIndex(0, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
@@ -1245,7 +1239,7 @@ public sealed partial class TerminalInstance
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
                         var end = controller.CursorIndex;
-                        var prev = TerminalTextUtility.GetPreviousRuneIndex(span, end);
+                        var prev = TerminalTextUtility.GetPreviousTextElementIndex(span, end);
                         controller.Remove(prev, end - prev);
                         controller.SetCursorIndex(prev, extendSelection: false);
                         ResetHistoryNavigation();
@@ -1276,7 +1270,7 @@ public sealed partial class TerminalInstance
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
                         var start = controller.CursorIndex;
-                        var next = TerminalTextUtility.GetNextRuneIndex(span, start);
+                        var next = TerminalTextUtility.GetNextTextElementIndex(span, start);
                         controller.Remove(start, next - start);
                         ResetHistoryNavigation();
                         return true;
@@ -1351,10 +1345,10 @@ public sealed partial class TerminalInstance
                     return HandleEditorKey(new TerminalKeyEvent { Key = TerminalKey.Tab, Char = '\t', Modifiers = key.Modifiers });
 
                 case TerminalReadLineCommand.CursorLeft:
-                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
                     return true;
                 case TerminalReadLineCommand.CursorRight:
-                    controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
+                    controller.SetCursorIndex(TerminalTextUtility.GetNextTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
                     return true;
                 case TerminalReadLineCommand.CursorHome:
                     controller.SetCursorIndex(0, extendSelection: key.Modifiers.HasFlag(TerminalModifiers.Shift));
@@ -1391,7 +1385,7 @@ public sealed partial class TerminalInstance
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
                         var end = controller.CursorIndex;
-                        var prev = TerminalTextUtility.GetPreviousRuneIndex(span, end);
+                        var prev = TerminalTextUtility.GetPreviousTextElementIndex(span, end);
                         controller.Remove(prev, end - prev);
                         controller.SetCursorIndex(prev, extendSelection: false);
                         ResetHistoryNavigation();
@@ -1410,7 +1404,7 @@ public sealed partial class TerminalInstance
                     {
                         var span = CollectionsMarshal.AsSpan(buffer);
                         var start = controller.CursorIndex;
-                        var next = TerminalTextUtility.GetNextRuneIndex(span, start);
+                        var next = TerminalTextUtility.GetNextTextElementIndex(span, start);
                         controller.Remove(start, next - start);
                         ResetHistoryNavigation();
                         return true;
@@ -1603,10 +1597,10 @@ public sealed partial class TerminalInstance
                     controller.SetCursorIndex(buffer.Count, extendSelection: false);
                     return true;
                 case TerminalChar.CtrlB: // Ctrl+B
-                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetPreviousTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalChar.CtrlF: // Ctrl+F
-                    controller.SetCursorIndex(TerminalTextUtility.GetNextRuneIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
+                    controller.SetCursorIndex(TerminalTextUtility.GetNextTextElementIndex(CollectionsMarshal.AsSpan(buffer), controller.CursorIndex), extendSelection: false);
                     return true;
                 case TerminalChar.CtrlP: // Ctrl+P
                     return options.EnableHistory && NavigateHistory(-1);
@@ -1716,7 +1710,7 @@ public sealed partial class TerminalInstance
             var i = index;
             while (i > 0)
             {
-                var prev = TerminalTextUtility.GetPreviousRuneIndex(text, i);
+                var prev = TerminalTextUtility.GetPreviousTextElementIndex(text, i);
                 if (!char.IsWhiteSpace(text[prev]))
                 {
                     break;
@@ -1726,7 +1720,7 @@ public sealed partial class TerminalInstance
 
             while (i > 0)
             {
-                var prev = TerminalTextUtility.GetPreviousRuneIndex(text, i);
+                var prev = TerminalTextUtility.GetPreviousTextElementIndex(text, i);
                 if (char.IsWhiteSpace(text[prev]))
                 {
                     break;
@@ -1747,7 +1741,7 @@ public sealed partial class TerminalInstance
             var i = index;
             while (i < text.Length)
             {
-                var next = TerminalTextUtility.GetNextRuneIndex(text, i);
+                var next = TerminalTextUtility.GetNextTextElementIndex(text, i);
                 if (!char.IsWhiteSpace(text[i]))
                 {
                     break;
@@ -1757,7 +1751,7 @@ public sealed partial class TerminalInstance
 
             while (i < text.Length)
             {
-                var next = TerminalTextUtility.GetNextRuneIndex(text, i);
+                var next = TerminalTextUtility.GetNextTextElementIndex(text, i);
                 if (char.IsWhiteSpace(text[i]))
                 {
                     break;

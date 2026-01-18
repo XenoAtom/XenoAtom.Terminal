@@ -122,6 +122,68 @@ public static class TerminalTextUtility
     }
 
     /// <summary>
+    /// Gets the index of the previous text element boundary (extended grapheme cluster) (UTF-16).
+    /// </summary>
+    public static int GetPreviousTextElementIndex(ReadOnlySpan<char> text, int index)
+    {
+        if (index <= 0 || text.IsEmpty)
+        {
+            return 0;
+        }
+
+        index = Math.Clamp(index, 0, text.Length);
+
+        var i = 0;
+        var previous = 0;
+        while (i < index)
+        {
+            previous = i;
+
+            var elementLength = StringInfo.GetNextTextElementLength(text[i..]);
+            if (elementLength <= 0)
+            {
+                // Invalid sequence; fall back to a single code unit step.
+                return Math.Max(0, index - 1);
+            }
+
+            var next = i + elementLength;
+            if (next >= index)
+            {
+                return previous;
+            }
+
+            i = next;
+        }
+
+        return previous;
+    }
+
+    /// <summary>
+    /// Gets the index of the next text element boundary (extended grapheme cluster) (UTF-16).
+    /// </summary>
+    public static int GetNextTextElementIndex(ReadOnlySpan<char> text, int index)
+    {
+        if (text.IsEmpty)
+        {
+            return 0;
+        }
+
+        if ((uint)index >= (uint)text.Length)
+        {
+            return text.Length;
+        }
+
+        var elementLength = StringInfo.GetNextTextElementLength(text[index..]);
+        if (elementLength <= 0)
+        {
+            // Invalid sequence; fall back to a single code unit step.
+            return Math.Min(index + 1, text.Length);
+        }
+
+        return Math.Min(index + elementLength, text.Length);
+    }
+
+    /// <summary>
     /// Attempts to map a terminal cell offset to a UTF-16 index in <paramref name="text"/>.
     /// </summary>
     public static bool TryGetIndexAtCell(ReadOnlySpan<char> text, int cellOffset, out int index, int tabWidth = DefaultTabWidth)
