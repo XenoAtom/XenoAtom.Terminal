@@ -4,7 +4,7 @@
 
 XenoAtom.Terminal is a modern replacement for `System.Console` designed for TUI/CLI apps: serialized output, rich ANSI/markup rendering, unified input events, and deterministic tests.
 
-## Quick start
+## 🚀 Quick start
 
 ```csharp
 using XenoAtom.Terminal;
@@ -50,20 +50,20 @@ Screenshot of the interactive sample HelloReadLine demo:
 > XenoAtom.Terminal is a terminal API, not a widget/UI framework.
 > It provides safe I/O, terminal state/scopes, and input events; higher-level libraries can build screen buffers, widgets, and layouts on top.
 
-## User Guide
+## 📖 User Guide
 
 For more details on how to use XenoAtom.Terminal, please visit the [user guide](https://github.com/XenoAtom/XenoAtom.Terminal/blob/main/doc/readme.md).
 
-## Sample
+## 🧪 Sample
 
 - `samples/HelloTerminal` prints all input events (key/mouse/resize/text/signal) and demonstrates scopes.
 - `samples/HelloReadLine` demonstrates the interactive `ReadLine` editor (history, selection, completion, and markup rendering).
 - `samples/LogTerminal` prints colored pseudo log lines (timestamp/level/category/message) and is run in CI to validate ANSI output.
 
-## License
+## 🪪 License
 
 This software is released under the [BSD-2-Clause license](https://opensource.org/licenses/BSD-2-Clause). 
 
-## Author
+## 🤗 Author
 
 Alexandre Mutel aka [xoofx](https://xoofx.github.io).
