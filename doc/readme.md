@@ -172,6 +172,20 @@ Markup is provided by `XenoAtom.Ansi.AnsiMarkup` and rendered to ANSI:
 Terminal.WriteMarkup("[bold yellow]Warning:[/] something happened");
 ```
 
+#### Custom markup tokens
+
+You can register custom markup tokens (e.g. to match your UI/theme vocabulary) and use them with `WriteMarkup`:
+
+```csharp
+Terminal.SetMarkupStyle("primary", AnsiStyle.Default with { Foreground = (AnsiColor)ConsoleColor.Cyan, Decorations = AnsiDecorations.Bold });
+Terminal.SetMarkupStyle("danger", AnsiStyle.Default with { Foreground = (AnsiColor)ConsoleColor.Red, Decorations = AnsiDecorations.Bold });
+
+Terminal.WriteMarkup("[primary]Hello[/] [danger]world[/]!");
+```
+
+The underlying dictionary is available via `Terminal.MarkupStyles` / `TerminalInstance.MarkupStyles` so higher-level libraries can share it with their own `AnsiMarkup` usage.
+If you mutate `MarkupStyles` in-place, call `Terminal.NotifyMarkupStylesChanged()` so cached markup renderers can be rebuilt.
+
 ### Atomic output
 
 Atomic writes guarantee that a multi-step output sequence is not interleaved with other concurrent output (important for styling transitions and cursor ops):

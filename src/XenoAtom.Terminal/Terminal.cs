@@ -109,6 +109,22 @@ public static partial class Terminal
         set => Instance.Decorations = value;
     }
 
+    /// <inheritdoc cref="TerminalInstance.MarkupStyles" />
+    public static Dictionary<string, AnsiStyle>? MarkupStyles
+    {
+        get => Instance.MarkupStyles;
+        set => Instance.MarkupStyles = value;
+    }
+
+    /// <inheritdoc cref="TerminalInstance.NotifyMarkupStylesChanged" />
+    public static void NotifyMarkupStylesChanged() => Instance.NotifyMarkupStylesChanged();
+
+    /// <inheritdoc cref="TerminalInstance.SetMarkupStyle(string,AnsiStyle)" />
+    public static TerminalInstance SetMarkupStyle(string token, AnsiStyle style) => Instance.SetMarkupStyle(token, style);
+
+    /// <inheritdoc cref="TerminalInstance.RemoveMarkupStyle(string)" />
+    public static bool RemoveMarkupStyle(string token) => Instance.RemoveMarkupStyle(token);
+
     /// <inheritdoc cref="TerminalInstance.Beep" />
     public static void Beep() => Instance.Beep();
 

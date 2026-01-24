@@ -20,6 +20,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - **Serialized writers** prevent interleaved escape sequences across threads
   - **Atomic writes** for multi-step output without tearing
   - **Markup + ANSI styling** (powered by [XenoAtom.Ansi](https://github.com/XenoAtom/XenoAtom.Ansi))
+  - Custom markup tokens via `Terminal.MarkupStyles` / `Terminal.SetMarkupStyle`
 - **Input (unified events)**:
   - Single event stream for **keys**, **text**, **mouse**, **resize**, **signals**
   - Async + cancellation-friendly APIs for TUI loops

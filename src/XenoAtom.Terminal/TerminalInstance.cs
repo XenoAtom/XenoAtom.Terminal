@@ -42,6 +42,12 @@ public sealed partial class TerminalInstance : IDisposable
     private AnsiCapabilities? _ansiCapabilities;
     private AnsiWriter? _writerUnsafe;
     private AnsiMarkup? _markupUnsafe;
+    private int _markupUnsafeCustomStylesRevision = -1;
+    private Dictionary<string, AnsiStyle>? _markupUnsafeCustomStyles;
+    private int _markupUnsafeCustomStylesCount;
+
+    private Dictionary<string, AnsiStyle>? _customMarkupStyles;
+    private int _customMarkupStylesRevision;
 
     private TerminalInputOptions? _inputOptions;
     private readonly TerminalCursor _cursor;
@@ -130,6 +136,29 @@ public sealed partial class TerminalInstance : IDisposable
     {
         get => _outputCapture?.Style ?? _style;
         set => SetStyleCore(value);
+    }
+
+    /// <summary>
+    /// Gets or sets a dictionary mapping custom markup style tokens (e.g. <c>primary</c>, <c>success</c>) to styles.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This dictionary is used by <see cref="WriteMarkup(string)"/> and related methods to resolve custom markup tokens.
+    /// </para>
+    /// <para>
+    /// If you mutate the dictionary in-place, call <see cref="NotifyMarkupStylesChanged"/> so cached markup renderers can be rebuilt.
+    /// Alternatively, update styles via <see cref="SetMarkupStyle(string,AnsiStyle)"/> which invalidates automatically.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, AnsiStyle>? MarkupStyles
+    {
+        get => _customMarkupStyles;
+        set
+        {
+            ThrowIfDisposed();
+            _customMarkupStyles = value;
+            Interlocked.Increment(ref _customMarkupStylesRevision);
+        }
     }
 
     /// <summary>
@@ -536,7 +565,10 @@ public sealed partial class TerminalInstance : IDisposable
 
         _ansiCapabilities = Internal.TerminalAnsiCapabilities.Create(_backend.Capabilities, _options);
         _writerUnsafe = new AnsiWriter(_rawOut, _ansiCapabilities);
-        _markupUnsafe = new AnsiMarkup(_writerUnsafe);
+        _markupUnsafe = CreateMarkupUnsafe(_writerUnsafe, _customMarkupStyles);
+        _markupUnsafeCustomStylesRevision = Volatile.Read(ref _customMarkupStylesRevision);
+        _markupUnsafeCustomStyles = _customMarkupStyles;
+        _markupUnsafeCustomStylesCount = _customMarkupStyles?.Count ?? 0;
 
         _style = AnsiStyle.Default;
 
@@ -575,6 +607,11 @@ public sealed partial class TerminalInstance : IDisposable
         _ansiCapabilities = null;
         _writerUnsafe = null;
         _markupUnsafe = null;
+        _markupUnsafeCustomStylesRevision = -1;
+        _markupUnsafeCustomStyles = null;
+        _markupUnsafeCustomStylesCount = 0;
+        _customMarkupStyles = null;
+        _customMarkupStylesRevision = 0;
         _style = AnsiStyle.Default;
         lock (_defaultInputQueueLock)
         {
@@ -731,8 +768,69 @@ public sealed partial class TerminalInstance : IDisposable
             return AnsiText.GetVisibleWidth(textWithAnsiOrMarkup.AsSpan());
         }
 
-        var rendered = AnsiMarkup.Render(textWithAnsiOrMarkup.AsSpan(), _ansiCapabilities);
-        return AnsiText.GetVisibleWidth(rendered.AsSpan());
+        if (!_isInitialized || _ansiCapabilities is null)
+        {
+            throw new InvalidOperationException("Terminal is not initialized.");
+        }
+
+        using var builder = new AnsiBuilder(textWithAnsiOrMarkup.Length + 16);
+        var writer = new AnsiWriter(builder, _ansiCapabilities);
+        var customStyles = _customMarkupStyles;
+        var formatter = customStyles is null || customStyles.Count == 0
+            ? new AnsiMarkup(writer)
+            : new AnsiMarkup(writer, customStyles);
+        formatter.Write(textWithAnsiOrMarkup.AsSpan());
+        return AnsiText.GetVisibleWidth(builder.UnsafeAsSpan());
+    }
+
+    /// <summary>
+    /// Updates or adds a custom markup style token and invalidates cached markup renderers.
+    /// </summary>
+    /// <param name="token">The token name (e.g. <c>primary</c>).</param>
+    /// <param name="style">The style associated with the token.</param>
+    /// <returns>This instance for fluent usage.</returns>
+    public TerminalInstance SetMarkupStyle(string token, AnsiStyle style)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(token);
+
+        var customStyles = _customMarkupStyles;
+        if (customStyles is null)
+        {
+            customStyles = new Dictionary<string, AnsiStyle>(StringComparer.OrdinalIgnoreCase);
+            _customMarkupStyles = customStyles;
+        }
+
+        customStyles[token] = style;
+        Interlocked.Increment(ref _customMarkupStylesRevision);
+        return this;
+    }
+
+    /// <summary>
+    /// Removes a custom markup style token and invalidates cached markup renderers.
+    /// </summary>
+    /// <param name="token">The token name to remove.</param>
+    /// <returns><see langword="true"/> if the token was removed; otherwise <see langword="false"/>.</returns>
+    public bool RemoveMarkupStyle(string token)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(token);
+
+        var customStyles = _customMarkupStyles;
+        if (customStyles is null || !customStyles.Remove(token))
+        {
+            return false;
+        }
+
+        Interlocked.Increment(ref _customMarkupStylesRevision);
+        return true;
+    }
+
+    /// <summary>
+    /// Notifies this instance that <see cref="MarkupStyles"/> was mutated in-place and cached markup renderers should be rebuilt.
+    /// </summary>
+    public void NotifyMarkupStylesChanged()
+    {
+        ThrowIfDisposed();
+        Interlocked.Increment(ref _customMarkupStylesRevision);
     }
 
     /// <summary>
@@ -1622,24 +1720,85 @@ public sealed partial class TerminalInstance : IDisposable
         => _outputCapture?.Writer ?? _writerUnsafe ?? throw new InvalidOperationException("Terminal is not initialized.");
 
     private AnsiMarkup GetMarkupUnsafe()
-        => _outputCapture?.Markup ?? _markupUnsafe ?? throw new InvalidOperationException("Terminal is not initialized.");
+    {
+        if (!_isInitialized || _writerUnsafe is null)
+        {
+            throw new InvalidOperationException("Terminal is not initialized.");
+        }
+
+        var customStyles = _customMarkupStyles;
+        var customStylesRevision = Volatile.Read(ref _customMarkupStylesRevision);
+        var customStylesCount = customStyles?.Count ?? 0;
+
+        var capture = _outputCapture;
+        if (capture is not null)
+        {
+            return capture.GetMarkup(customStylesRevision, customStyles, customStylesCount);
+        }
+
+        if (_markupUnsafe is null
+            || _markupUnsafeCustomStylesRevision != customStylesRevision
+            || !ReferenceEquals(_markupUnsafeCustomStyles, customStyles)
+            || _markupUnsafeCustomStylesCount != customStylesCount)
+        {
+            _markupUnsafe = CreateMarkupUnsafe(_writerUnsafe, customStyles);
+            _markupUnsafeCustomStylesRevision = customStylesRevision;
+            _markupUnsafeCustomStyles = customStyles;
+            _markupUnsafeCustomStylesCount = customStylesCount;
+        }
+
+        return _markupUnsafe;
+    }
+
+    private static AnsiMarkup CreateMarkupUnsafe(AnsiWriter writer, Dictionary<string, AnsiStyle>? customStyles)
+    {
+        if (customStyles is null || customStyles.Count == 0)
+        {
+            return new AnsiMarkup(writer);
+        }
+
+        return new AnsiMarkup(writer, customStyles);
+    }
 
     private sealed class OutputCaptureContext
     {
-        public OutputCaptureContext(AnsiBuilder builder, AnsiCapabilities capabilities, AnsiStyle initialStyle)
+        private AnsiMarkup _markup;
+        private int _customStylesRevision;
+        private Dictionary<string, AnsiStyle>? _customStyles;
+        private int _customStylesCount;
+
+        public OutputCaptureContext(AnsiBuilder builder, AnsiCapabilities capabilities, AnsiStyle initialStyle, int customStylesRevision, Dictionary<string, AnsiStyle>? customStyles, int customStylesCount)
         {
             Builder = builder;
             RawOut = new AnsiBuilderTextWriter(builder);
             Writer = new AnsiWriter(builder, capabilities);
-            Markup = new AnsiMarkup(Writer);
+
+            _markup = CreateMarkupUnsafe(Writer, customStyles);
+            _customStylesRevision = customStylesRevision;
+            _customStyles = customStyles;
+            _customStylesCount = customStylesCount;
             Style = initialStyle;
         }
 
         public AnsiBuilder Builder { get; }
         public TextWriter RawOut { get; }
         public AnsiWriter Writer { get; }
-        public AnsiMarkup Markup { get; }
         public AnsiStyle Style { get; set; }
+
+        public AnsiMarkup GetMarkup(int customStylesRevision, Dictionary<string, AnsiStyle>? customStyles, int customStylesCount)
+        {
+            if (_customStylesRevision != customStylesRevision
+                || !ReferenceEquals(_customStyles, customStyles)
+                || _customStylesCount != customStylesCount)
+            {
+                _markup = CreateMarkupUnsafe(Writer, customStyles);
+                _customStylesRevision = customStylesRevision;
+                _customStyles = customStyles;
+                _customStylesCount = customStylesCount;
+            }
+
+            return _markup;
+        }
     }
 
     /// <summary>
@@ -1655,7 +1814,15 @@ public sealed partial class TerminalInstance : IDisposable
             _terminal = terminal;
             _previous = _outputCapture;
             builder.Clear();
-            _outputCapture = new OutputCaptureContext(builder, terminal._ansiCapabilities!, terminal._style);
+
+            var customStyles = terminal._customMarkupStyles;
+            _outputCapture = new OutputCaptureContext(
+                builder,
+                terminal._ansiCapabilities!,
+                terminal._style,
+                Volatile.Read(ref terminal._customMarkupStylesRevision),
+                customStyles,
+                customStyles?.Count ?? 0);
         }
 
         /// <summary>
