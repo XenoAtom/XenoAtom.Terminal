@@ -22,6 +22,7 @@ internal static unsafe class UnixTermiosModes
 
         SetCc(ref termios, LibC.LINUX_VMIN, 1);
         SetCc(ref termios, LibC.LINUX_VTIME, 0);
+        SetCc(ref termios, LibC.LINUX_VSUSP, 0); // Disable Ctrl+Z (SIGTSTP) so it can be handled by the application.
     }
 
     public static void ConfigureCbreak(ref LibC.termios_macos termios, bool enableSignals)
@@ -35,6 +36,7 @@ internal static unsafe class UnixTermiosModes
 
         SetCc(ref termios, LibC.MACOS_VMIN, 1);
         SetCc(ref termios, LibC.MACOS_VTIME, 0);
+        SetCc(ref termios, LibC.MACOS_VSUSP, 0); // Disable Ctrl+Z (SIGTSTP) so it can be handled by the application.
     }
 
     private static void SetCc(ref LibC.termios_linux termios, int index, byte value)

@@ -224,6 +224,7 @@ internal static unsafe class LibC
 
     public const int LINUX_VTIME = 5;
     public const int LINUX_VMIN = 6;
+    public const int LINUX_VSUSP = 10; // Index of SUSP character (Ctrl+Z) in c_cc array.
 
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct termios_linux
@@ -279,6 +280,7 @@ internal static unsafe class LibC
 
     public const int MACOS_VTIME = 17;
     public const int MACOS_VMIN = 16;
+    public const int MACOS_VSUSP = 10; // Index of SUSP character (Ctrl+Z) in c_cc array.
 
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct termios_macos
