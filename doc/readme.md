@@ -233,6 +233,8 @@ Terminal.Decorations = XenoAtom.Ansi.AnsiDecorations.Bold;
 > [!NOTE]
 > These properties reflect style changes made via Terminal APIs. If raw ANSI is written outside of Terminal APIs, the tracked state can become inaccurate.
 
+On Unix backends, capability detection combines environment hints (`TERM`, `COLORTERM`) with terminfo capabilities (`colors` plus truecolor extensions like `Tc`/`RGB` or `setrgbf`/`setrgbb`) to decide between 16-color, 256-color, and truecolor output. Terminfo is also used to refine features like alternate screen support and cursor visibility. You can still clamp/override the color result with `TerminalOptions.PreferredColorLevel`.
+
 ### Cursor
 
 ```csharp

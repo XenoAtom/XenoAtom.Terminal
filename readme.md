@@ -43,6 +43,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - CI-aware backend keeps colors when output is redirected
   - In-memory backend for deterministic tests (capture output + inject events)
 - **Cross-platform + AOT**: Windows Console + Unix (Linux/macOS), `net10.0`+ and NativeAOT-friendly design
+- **Unix terminfo detection**: uses terminfo + environment hints for colors (16/256/truecolor) and related capabilities (alternate screen/cursor visibility)
 
 Screenshot of the interactive sample HelloReadLine demo:
 

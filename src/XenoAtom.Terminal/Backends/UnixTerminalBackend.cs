@@ -126,8 +126,9 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         var terminalName = !string.IsNullOrEmpty(termProgram) ? termProgram : (!string.IsNullOrEmpty(term) ? term : "Unix");
 
         var ansiEnabled = options.ForceAnsi || (!isOutputRedirected && !string.Equals(term, "dumb", StringComparison.OrdinalIgnoreCase));
+        var terminfo = UnixTerminfo.TryLoad(term, out var loadedTerminfo) ? loadedTerminfo : null;
 
-        var detectedColor = ansiEnabled ? DetectColorLevel(term) : TerminalColorLevel.None;
+        var detectedColor = ansiEnabled ? DetectColorLevel(term, terminfo) : TerminalColorLevel.None;
         var colorLevel = ansiEnabled ? MinColorLevel(detectedColor, options.PreferredColorLevel) : TerminalColorLevel.None;
 
         if (options.RespectNoColor && !options.ForceAnsi && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR")))
@@ -142,18 +143,29 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         var supportsClipboardGet = hasClipboardProvider;
         var supportsClipboardSet = hasClipboardProvider || supportsOsc52Clipboard;
 
+        var supportsAlternateScreen = ansiEnabled && !isOutputRedirected;
+        var supportsCursorVisibility = ansiEnabled && !isOutputRedirected;
+        var supportsCursorPositionSet = !isOutputRedirected;
+
+        if (terminfo is not null)
+        {
+            supportsAlternateScreen &= terminfo.SupportsAlternateScreen;
+            supportsCursorVisibility &= terminfo.SupportsCursorVisibility;
+            supportsCursorPositionSet &= terminfo.SupportsCursorPositioning;
+        }
+
         Capabilities = new TerminalCapabilities
         {
             AnsiEnabled = ansiEnabled,
             ColorLevel = colorLevel,
             SupportsOsc8Links = supportsOsc8,
-            SupportsAlternateScreen = ansiEnabled && !isOutputRedirected,
-            SupportsCursorVisibility = ansiEnabled && !isOutputRedirected,
+            SupportsAlternateScreen = supportsAlternateScreen,
+            SupportsCursorVisibility = supportsCursorVisibility,
             SupportsMouse = ansiEnabled && !isInputRedirected && !isOutputRedirected,
             SupportsBracketedPaste = ansiEnabled && !isOutputRedirected,
             SupportsRawMode = !isInputRedirected,
             SupportsCursorPositionGet = ansiEnabled && !isInputRedirected && !isOutputRedirected,
-            SupportsCursorPositionSet = !isOutputRedirected,
+            SupportsCursorPositionSet = supportsCursorPositionSet,
             SupportsClipboardGet = supportsClipboardGet,
             SupportsClipboardSet = supportsClipboardSet,
             SupportsOsc52Clipboard = supportsOsc52Clipboard,
@@ -1310,7 +1322,19 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         return TerminalScope.Empty;
     }
 
-    private static TerminalColorLevel DetectColorLevel(string term)
+    private static TerminalColorLevel DetectColorLevel(string term, UnixTerminfo? terminfo)
+    {
+        var envColor = DetectColorLevelFromEnvironment(term);
+        if (terminfo is null)
+        {
+            return envColor;
+        }
+
+        var terminfoColor = terminfo.GetColorLevel(TerminalColorLevel.None);
+        return terminfoColor == TerminalColorLevel.None ? envColor : MaxColorLevel(envColor, terminfoColor);
+    }
+
+    private static TerminalColorLevel DetectColorLevelFromEnvironment(string term)
     {
         var colorTerm = Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
         if (colorTerm.Contains("truecolor", StringComparison.OrdinalIgnoreCase) || colorTerm.Contains("24bit", StringComparison.OrdinalIgnoreCase))
@@ -1327,17 +1351,18 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     }
 
     private static TerminalColorLevel MinColorLevel(TerminalColorLevel a, TerminalColorLevel b)
-    {
-        static int Rank(TerminalColorLevel v) => v switch
-        {
-            TerminalColorLevel.None => 0,
-            TerminalColorLevel.Color16 => 1,
-            TerminalColorLevel.Color256 => 2,
-            _ => 3,
-        };
+        => ColorLevelRank(a) <= ColorLevelRank(b) ? a : b;
 
-        return Rank(a) <= Rank(b) ? a : b;
-    }
+    private static TerminalColorLevel MaxColorLevel(TerminalColorLevel a, TerminalColorLevel b)
+        => ColorLevelRank(a) >= ColorLevelRank(b) ? a : b;
+
+    private static int ColorLevelRank(TerminalColorLevel v) => v switch
+    {
+        TerminalColorLevel.None => 0,
+        TerminalColorLevel.Color16 => 1,
+        TerminalColorLevel.Color256 => 2,
+        _ => 3,
+    };
 
     // Control character manipulation is centralized in UnixTermiosModes.
 
