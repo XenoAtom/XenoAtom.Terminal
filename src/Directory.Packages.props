@@ -8,6 +8,6 @@
     <PackageVersion Include="MinVer" Version="7.0.0" />
     <PackageVersion Include="MSTest.TestAdapter" Version="4.0.2" />
     <PackageVersion Include="MSTest.TestFramework" Version="4.0.2" />
-    <PackageVersion Include="XenoAtom.Ansi" Version="1.5.0" />
+    <PackageVersion Include="XenoAtom.Ansi" Version="1.6.0" />
   </ItemGroup>
 </Project>

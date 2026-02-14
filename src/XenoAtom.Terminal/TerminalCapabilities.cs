@@ -45,6 +45,15 @@ public sealed class TerminalCapabilities
     public bool SupportsBracketedPaste { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether DEC private modes (CSI ? ... h/l) should be emitted.
+    /// </summary>
+    /// <remarks>
+    /// This is intentionally broader than individual high-level features. Some hosts (for example CI logs)
+    /// preserve raw ANSI text but do not interpret private modes, which can pollute output.
+    /// </remarks>
+    public bool SupportsPrivateModes { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether raw/cbreak input modes are supported.
     /// </summary>
     public bool SupportsRawMode { get; init; }

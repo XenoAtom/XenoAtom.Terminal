@@ -125,11 +125,11 @@ XenoAtom.Terminal selects a backend automatically (Windows Console on Windows, U
 Inspect the detected capabilities:
 
 ```csharp
-Terminal.WriteLine($"Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.Capabilities.ColorLevel}, Mouse={Terminal.Capabilities.SupportsMouse}");
+Terminal.WriteLine($"Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.Capabilities.ColorLevel}, Mouse={Terminal.Capabilities.SupportsMouse}, PrivateModes={Terminal.Capabilities.SupportsPrivateModes}");
 ```
 
 > [!NOTE]
-> Terminal capabilities vary by host (terminal emulator, CI log, SSH, etc.). Some APIs are best-effort or capability-dependent; check the API/XML documentation for per-member details.
+> Terminal capabilities vary by host (terminal emulator, CI log, SSH, etc.). Some APIs are best-effort or capability-dependent; check the API/XML documentation for per-member details. In CI-style redirected backends, private modes are usually disabled to avoid leaking raw control sequences into logs.
 
 ## Output
 

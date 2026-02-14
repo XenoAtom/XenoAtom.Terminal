@@ -23,6 +23,7 @@ internal static class TerminalAnsiCapabilities
             AnsiEnabled = caps.AnsiEnabled,
             ColorLevel = colorLevel,
             SupportsOsc8 = caps.SupportsOsc8Links,
+            SupportsPrivateModes = caps.SupportsPrivateModes,
             Prefer7BitC1 = options.Prefer7BitC1,
         };
     }

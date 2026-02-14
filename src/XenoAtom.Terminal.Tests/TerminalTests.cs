@@ -297,29 +297,7 @@ public class TerminalTests
     [TestMethod]
     public void ForegroundColor_WritesAnsi_WhenOutputRedirectedButAnsiEnabled()
     {
-        var ciCaps = new TerminalCapabilities
-        {
-            AnsiEnabled = true,
-            ColorLevel = TerminalColorLevel.Color16,
-            SupportsOsc8Links = false,
-            SupportsAlternateScreen = false,
-            SupportsCursorVisibility = false,
-            SupportsMouse = false,
-            SupportsBracketedPaste = false,
-            SupportsRawMode = false,
-            SupportsCursorPositionGet = false,
-            SupportsCursorPositionSet = false,
-            SupportsTitleGet = false,
-            SupportsTitleSet = false,
-            SupportsWindowSize = false,
-            SupportsWindowSizeSet = false,
-            SupportsBufferSize = false,
-            SupportsBufferSizeSet = false,
-            SupportsBeep = false,
-            IsOutputRedirected = true,
-            IsInputRedirected = true,
-            TerminalName = "CI",
-        };
+        var ciCaps = CreateCiCapabilities();
 
         var backend = new InMemoryTerminalBackend(capabilities: ciCaps);
         Terminal.Initialize(backend);
@@ -327,6 +305,34 @@ public class TerminalTests
         Terminal.ForegroundColor = ConsoleColor.Red;
 
         Assert.IsTrue(backend.GetOutText().Contains("\x1b[", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void PrivateMode_DoesNotWrite_WhenUnsupportedInCiStyleBackend()
+    {
+        var backend = new InMemoryTerminalBackend(capabilities: CreateCiCapabilities());
+        Terminal.Initialize(backend);
+
+        Terminal.PrivateMode(2026, enabled: true);
+        Terminal.PrivateMode(2026, enabled: false);
+
+        var text = backend.GetOutText();
+        Assert.IsFalse(text.Contains("\x1b[?2026h", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains("\x1b[?2026l", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void PrivateMode_Writes_WhenSupportedByInteractiveVirtualBackend()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+
+        Terminal.PrivateMode(2026, enabled: true);
+        Terminal.PrivateMode(2026, enabled: false);
+
+        var text = backend.GetOutText();
+        Assert.IsTrue(text.Contains("\x1b[?2026h", StringComparison.Ordinal));
+        Assert.IsTrue(text.Contains("\x1b[?2026l", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -524,4 +530,30 @@ public class TerminalTests
             index += needle.Length;
         }
     }
+
+    private static TerminalCapabilities CreateCiCapabilities()
+        => new()
+        {
+            AnsiEnabled = true,
+            ColorLevel = TerminalColorLevel.Color16,
+            SupportsOsc8Links = false,
+            SupportsAlternateScreen = false,
+            SupportsCursorVisibility = false,
+            SupportsMouse = false,
+            SupportsBracketedPaste = false,
+            SupportsPrivateModes = false,
+            SupportsRawMode = false,
+            SupportsCursorPositionGet = false,
+            SupportsCursorPositionSet = false,
+            SupportsTitleGet = false,
+            SupportsTitleSet = false,
+            SupportsWindowSize = false,
+            SupportsWindowSizeSet = false,
+            SupportsBufferSize = false,
+            SupportsBufferSizeSet = false,
+            SupportsBeep = false,
+            IsOutputRedirected = true,
+            IsInputRedirected = true,
+            TerminalName = "CI",
+        };
 }
