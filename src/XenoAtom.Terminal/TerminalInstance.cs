@@ -1882,7 +1882,7 @@ public sealed partial class TerminalInstance : IDisposable
     {
         if (Console.IsOutputRedirected && VirtualTerminalBackend.TryDetectKnownCapabilities(out var known))
         {
-            return new VirtualTerminalBackend(capabilities: known);
+            return new VirtualTerminalBackend(capabilities: known, initialSize: new(180, 100));
         }
 
         if (OperatingSystem.IsWindows())
