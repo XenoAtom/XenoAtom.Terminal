@@ -14,6 +14,8 @@ namespace XenoAtom.Terminal;
 /// </summary>
 public static class TerminalTextUtility
 {
+    private static readonly Func<Rune, bool> DefaultWideRuneDetector = IsLikelyEmojiScalar;
+
     /// <summary>
     /// The default tab width in terminal cells.
     /// </summary>
@@ -23,12 +25,22 @@ public static class TerminalTextUtility
     /// Gets the terminal cell width of a UTF-16 span.
     /// </summary>
     public static int GetWidth(ReadOnlySpan<char> text, int tabWidth = DefaultTabWidth)
+        => GetWidth(text, isWideRune: null, tabWidth);
+
+    /// <summary>
+    /// Gets the terminal cell width of a UTF-16 span.
+    /// </summary>
+    /// <param name="text">The text to measure.</param>
+    /// <param name="isWideRune">Optional predicate used to widen additional scalar values to two cells.</param>
+    /// <param name="tabWidth">The width of a tab character in terminal cells.</param>
+    public static int GetWidth(ReadOnlySpan<char> text, Func<Rune, bool>? isWideRune, int tabWidth = DefaultTabWidth)
     {
         if (text.IsEmpty)
         {
             return 0;
         }
 
+        var wideRuneDetector = isWideRune ?? DefaultWideRuneDetector;
         var width = 0;
         var index = 0;
         while (index < text.Length)
@@ -37,12 +49,12 @@ public static class TerminalTextUtility
             if (elementLength <= 0)
             {
                 // Replace invalid sequences with U+FFFD.
-                width += GetRuneWidth(Rune.ReplacementChar, tabWidth);
+                width += GetRuneWidth(Rune.ReplacementChar, wideRuneDetector, tabWidth);
                 index++;
                 continue;
             }
 
-            width += GetTextElementWidth(text.Slice(index, elementLength), tabWidth);
+            width += GetTextElementWidth(text.Slice(index, elementLength), wideRuneDetector, tabWidth);
             index += elementLength;
         }
 
@@ -53,12 +65,32 @@ public static class TerminalTextUtility
     /// Gets the terminal cell width of a slice of <paramref name="text"/> (UTF-16).
     /// </summary>
     public static int GetWidth(ReadOnlySpan<char> text, int start, int length, int tabWidth = DefaultTabWidth)
-        => GetWidth(text.Slice(start, length), tabWidth);
+        => GetWidth(text.Slice(start, length), isWideRune: null, tabWidth);
+
+    /// <summary>
+    /// Gets the terminal cell width of a slice of <paramref name="text"/> (UTF-16).
+    /// </summary>
+    /// <param name="text">The source text.</param>
+    /// <param name="start">The start index of the slice.</param>
+    /// <param name="length">The length of the slice.</param>
+    /// <param name="isWideRune">Optional predicate used to widen additional scalar values to two cells.</param>
+    /// <param name="tabWidth">The width of a tab character in terminal cells.</param>
+    public static int GetWidth(ReadOnlySpan<char> text, int start, int length, Func<Rune, bool>? isWideRune, int tabWidth = DefaultTabWidth)
+        => GetWidth(text.Slice(start, length), isWideRune, tabWidth);
 
     /// <summary>
     /// Gets the terminal cell width of a Unicode scalar value.
     /// </summary>
     public static int GetRuneWidth(Rune rune, int tabWidth = DefaultTabWidth)
+        => GetRuneWidth(rune, isWideRune: null, tabWidth);
+
+    /// <summary>
+    /// Gets the terminal cell width of a Unicode scalar value.
+    /// </summary>
+    /// <param name="rune">The scalar value to measure.</param>
+    /// <param name="isWideRune">Optional predicate used to widen additional scalar values to two cells.</param>
+    /// <param name="tabWidth">The width of a tab character in terminal cells.</param>
+    public static int GetRuneWidth(Rune rune, Func<Rune, bool>? isWideRune, int tabWidth = DefaultTabWidth)
     {
         if (rune.Value == '\t')
         {
@@ -76,7 +108,7 @@ public static class TerminalTextUtility
         // Terminal emulators frequently render emoji/pictographic symbols as wide (2 cells) even when
         // wcwidth tables report a width of 1. This is especially visible when cursor positioning or
         // column alignment is computed using the narrower width.
-        if (w == 1 && IsLikelyEmojiScalar(rune.Value))
+        if (w == 1 && (isWideRune ?? DefaultWideRuneDetector)(rune))
         {
             return 2;
         }
@@ -187,6 +219,17 @@ public static class TerminalTextUtility
     /// Attempts to map a terminal cell offset to a UTF-16 index in <paramref name="text"/>.
     /// </summary>
     public static bool TryGetIndexAtCell(ReadOnlySpan<char> text, int cellOffset, out int index, int tabWidth = DefaultTabWidth)
+        => TryGetIndexAtCell(text, cellOffset, out index, isWideRune: null, tabWidth);
+
+    /// <summary>
+    /// Attempts to map a terminal cell offset to a UTF-16 index in <paramref name="text"/>.
+    /// </summary>
+    /// <param name="text">The text to inspect.</param>
+    /// <param name="cellOffset">The zero-based terminal cell offset.</param>
+    /// <param name="index">The resulting UTF-16 index when the method returns.</param>
+    /// <param name="isWideRune">Optional predicate used to widen additional scalar values to two cells.</param>
+    /// <param name="tabWidth">The width of a tab character in terminal cells.</param>
+    public static bool TryGetIndexAtCell(ReadOnlySpan<char> text, int cellOffset, out int index, Func<Rune, bool>? isWideRune, int tabWidth = DefaultTabWidth)
     {
         if (cellOffset <= 0)
         {
@@ -194,6 +237,7 @@ public static class TerminalTextUtility
             return true;
         }
 
+        var wideRuneDetector = isWideRune ?? DefaultWideRuneDetector;
         var width = 0;
         var i = 0;
         while (i < text.Length)
@@ -205,7 +249,7 @@ public static class TerminalTextUtility
                 return true;
             }
 
-            var w = GetTextElementWidth(text.Slice(i, elementLength), tabWidth);
+            var w = GetTextElementWidth(text.Slice(i, elementLength), wideRuneDetector, tabWidth);
             if (width + w > cellOffset)
             {
                 index = i;
@@ -220,7 +264,7 @@ public static class TerminalTextUtility
         return true;
     }
 
-    private static int GetTextElementWidth(ReadOnlySpan<char> element, int tabWidth)
+    private static int GetTextElementWidth(ReadOnlySpan<char> element, Func<Rune, bool> isWideRune, int tabWidth)
     {
         // A text element (grapheme cluster) can include multiple runes (e.g. ZWJ sequences, VS16, flags).
         // We treat the element as a single unit and compute a conservative cell width, otherwise
@@ -232,28 +276,28 @@ public static class TerminalTextUtility
 
         if (Rune.DecodeFromUtf16(element, out var first, out var consumed) != OperationStatus.Done || consumed <= 0)
         {
-            return GetRuneWidth(Rune.ReplacementChar, tabWidth);
+            return GetRuneWidth(Rune.ReplacementChar, isWideRune, tabWidth);
         }
 
         if (element.Length == consumed)
         {
-            return GetRuneWidth(first, tabWidth);
+            return GetRuneWidth(first, isWideRune, tabWidth);
         }
 
-        var maxWidth = GetRuneWidth(first, tabWidth);
+        var maxWidth = GetRuneWidth(first, isWideRune, tabWidth);
         var hasEmojiPresentationHint = first.Value is 0xFE0F or 0x200D;
         var index = consumed;
         while (index < element.Length)
         {
             if (Rune.DecodeFromUtf16(element[index..], out var rune, out var c) != OperationStatus.Done || c <= 0)
             {
-                maxWidth = Math.Max(maxWidth, GetRuneWidth(Rune.ReplacementChar, tabWidth));
+                maxWidth = Math.Max(maxWidth, GetRuneWidth(Rune.ReplacementChar, isWideRune, tabWidth));
                 index++;
                 continue;
             }
 
             hasEmojiPresentationHint |= rune.Value is 0xFE0F or 0x200D;
-            maxWidth = Math.Max(maxWidth, GetRuneWidth(rune, tabWidth));
+            maxWidth = Math.Max(maxWidth, GetRuneWidth(rune, isWideRune, tabWidth));
             index += c;
         }
 
@@ -267,12 +311,16 @@ public static class TerminalTextUtility
         return maxWidth;
     }
 
-    private static bool IsLikelyEmojiScalar(int scalar)
+    /// <summary>
+    /// Gets whether a Unicode scalar is likely to be rendered as an emoji-style wide glyph by terminals.
+    /// </summary>
+    /// <param name="rune">The scalar value to inspect.</param>
+    public static bool IsLikelyEmojiScalar(Rune rune)
     {
         // A pragmatic approximation: cover the most common emoji/pictographic blocks and symbols.
         // This is intentionally simple and avoids full UTS#51 processing, while fixing the common
         // misalignment issues seen in terminal UIs.
-        return scalar is
+        return rune.Value is
                    // Misc Symbols and Pictographs + Emoticons + Transport/Map + Supplemental + Extended-A/B (subset)
                    >= 0x1F300 and <= 0x1FAFF
                or >= 0x1F1E6 and <= 0x1F1FF; // Regional indicator symbols (flags)

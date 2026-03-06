@@ -2,11 +2,21 @@
 // Licensed under the BSD-Clause 2 license.
 // See license.txt file in the project root for full license information.
 
+using System.Text;
+
 namespace XenoAtom.Terminal.Tests;
 
 [TestClass]
 public sealed class EmojiWidthTests
 {
+    [TestMethod]
+    public void TerminalTextUtility_IsLikelyEmojiScalar_IsPublicAndMatchesExpectedValues()
+    {
+        Assert.IsTrue(TerminalTextUtility.IsLikelyEmojiScalar(new Rune(0x1F603))); // 😃
+        Assert.IsTrue(TerminalTextUtility.IsLikelyEmojiScalar(new Rune(0x1F1FA))); // 🇺
+        Assert.IsFalse(TerminalTextUtility.IsLikelyEmojiScalar(new Rune('A')));
+    }
+
     [TestMethod]
     public void TerminalTextUtility_GetWidth_UsesGraphemeClusters()
     {
@@ -25,6 +35,15 @@ public sealed class EmojiWidthTests
 
         // Combining marks are part of the same grapheme cluster and should not add width.
         Assert.AreEqual(1, TerminalTextUtility.GetWidth("e\u0301".AsSpan())); // é
+    }
+
+    [TestMethod]
+    public void TerminalTextUtility_GetWidth_AllowsCustomWideRuneDetection()
+    {
+        static bool IsCustomWideRune(Rune rune) => rune.Value == 'X';
+
+        Assert.AreEqual(4, TerminalTextUtility.GetWidth("aXb".AsSpan(), IsCustomWideRune));
+        Assert.AreEqual(2, TerminalTextUtility.GetRuneWidth(new Rune('X'), IsCustomWideRune));
     }
 
     [TestMethod]
@@ -47,5 +66,20 @@ public sealed class EmojiWidthTests
 
         Assert.IsTrue(TerminalTextUtility.TryGetIndexAtCell(text, cellOffset: 4, out var i4));
         Assert.AreEqual(5, i4);
+    }
+
+    [TestMethod]
+    public void TerminalTextUtility_TryGetIndexAtCell_UsesCustomWideRuneDetection()
+    {
+        static bool IsCustomWideRune(Rune rune) => rune.Value == 'X';
+
+        var text = "aXb".AsSpan();
+        Assert.AreEqual(4, TerminalTextUtility.GetWidth(text, IsCustomWideRune));
+
+        Assert.IsTrue(TerminalTextUtility.TryGetIndexAtCell(text, cellOffset: 2, out var insideWideRune, IsCustomWideRune));
+        Assert.AreEqual(1, insideWideRune);
+
+        Assert.IsTrue(TerminalTextUtility.TryGetIndexAtCell(text, cellOffset: 3, out var afterWideRune, IsCustomWideRune));
+        Assert.AreEqual(2, afterWideRune);
     }
 }
