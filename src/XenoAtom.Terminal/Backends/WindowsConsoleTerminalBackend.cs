@@ -68,6 +68,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         SupportsClipboard = false,
         SupportsClipboardGet = false,
         SupportsClipboardSet = false,
+        SupportsClipboardFormatsGet = false,
+        SupportsClipboardFormatsSet = false,
         SupportsOsc52Clipboard = false,
         SupportsTitleGet = false,
         SupportsTitleSet = false,
@@ -157,6 +159,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             SupportsCursorPositionSet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
             SupportsClipboardGet = true,
             SupportsClipboardSet = true,
+            SupportsClipboardFormatsGet = true,
+            SupportsClipboardFormatsSet = true,
             SupportsClipboard = true,
             SupportsTitleGet = true,
             SupportsTitleSet = true,
@@ -570,6 +574,99 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
     }
 
     /// <inheritdoc />
+    public bool TryGetClipboardFormats([NotNullWhen(true)] out IReadOnlyList<string>? formats)
+    {
+        formats = null;
+
+        if (!TryOpenClipboard())
+        {
+            return false;
+        }
+
+        try
+        {
+            var knownFormats = new List<string>();
+            var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            uint current = 0;
+            while ((current = Win32Clipboard.EnumClipboardFormats(current)) != 0)
+            {
+                if (!TryMapClipboardFormatToName(current, out var formatName))
+                {
+                    continue;
+                }
+
+                if (unique.Add(formatName))
+                {
+                    knownFormats.Add(formatName);
+                }
+            }
+
+            formats = knownFormats;
+            return true;
+        }
+        finally
+        {
+            Win32Clipboard.CloseClipboard();
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetClipboardData(string format, [NotNullWhen(true)] out byte[]? data)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(format);
+        data = null;
+
+        var normalized = TerminalClipboardFormatHelper.Normalize(format);
+        if (string.Equals(normalized, TerminalClipboardFormats.Text, StringComparison.Ordinal))
+        {
+            return TryGetClipboardTextAsBytes(out data);
+        }
+
+        if (!TryResolveClipboardFormat(normalized, out var clipboardFormat))
+        {
+            return false;
+        }
+
+        if (!TryOpenClipboard())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!Win32Clipboard.IsClipboardFormatAvailable(clipboardFormat))
+            {
+                return false;
+            }
+
+            return TryReadClipboardBytes(clipboardFormat, out data);
+        }
+        finally
+        {
+            Win32Clipboard.CloseClipboard();
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TrySetClipboardData(string format, ReadOnlySpan<byte> data)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(format);
+
+        var normalized = TerminalClipboardFormatHelper.Normalize(format);
+        if (string.Equals(normalized, TerminalClipboardFormats.Text, StringComparison.Ordinal))
+        {
+            return TrySetClipboardText(Encoding.UTF8.GetString(data).AsSpan());
+        }
+
+        if (!TryResolveClipboardFormat(normalized, out var clipboardFormat))
+        {
+            return false;
+        }
+
+        return TrySetClipboardBytes(clipboardFormat, data);
+    }
+
+    /// <inheritdoc />
     public unsafe bool TrySetClipboardText(ReadOnlySpan<char> text)
     {
         if (!TryOpenClipboard())
@@ -577,7 +674,6 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             return false;
         }
 
-        IntPtr hGlobal = IntPtr.Zero;
         try
         {
             if (!Win32Clipboard.EmptyClipboard())
@@ -585,6 +681,31 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
                 return false;
             }
 
+            return TrySetClipboardTextCore(text);
+        }
+        finally
+        {
+            Win32Clipboard.CloseClipboard();
+        }
+    }
+
+    private bool TryGetClipboardTextAsBytes([NotNullWhen(true)] out byte[]? data)
+    {
+        data = null;
+        if (!TryGetClipboardText(out var text))
+        {
+            return false;
+        }
+
+        data = Encoding.UTF8.GetBytes(text);
+        return true;
+    }
+
+    private unsafe bool TrySetClipboardTextCore(ReadOnlySpan<char> text)
+    {
+        IntPtr hGlobal = IntPtr.Zero;
+        try
+        {
             var bytes = checked((nuint)(text.Length + 1) * 2);
             hGlobal = Win32Clipboard.GlobalAlloc(Win32Clipboard.GMEM_MOVEABLE | Win32Clipboard.GMEM_ZEROINIT, (UIntPtr)bytes);
             if (hGlobal == IntPtr.Zero)
@@ -622,7 +743,6 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
                 return false;
             }
 
-            // Ownership transferred to the system.
             hGlobal = IntPtr.Zero;
             return true;
         }
@@ -632,9 +752,171 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             {
                 Win32Clipboard.GlobalFree(hGlobal);
             }
+        }
+    }
 
+    private bool TrySetClipboardBytes(uint clipboardFormat, ReadOnlySpan<byte> data)
+    {
+        if (!TryOpenClipboard())
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!Win32Clipboard.EmptyClipboard())
+            {
+                return false;
+            }
+
+            return TrySetClipboardBytesCore(clipboardFormat, data);
+        }
+        finally
+        {
             Win32Clipboard.CloseClipboard();
         }
+    }
+
+    private unsafe bool TrySetClipboardBytesCore(uint clipboardFormat, ReadOnlySpan<byte> data)
+    {
+        IntPtr hGlobal = IntPtr.Zero;
+        try
+        {
+            hGlobal = Win32Clipboard.GlobalAlloc(Win32Clipboard.GMEM_MOVEABLE | Win32Clipboard.GMEM_ZEROINIT, (UIntPtr)data.Length);
+            if (hGlobal == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var ptr = Win32Clipboard.GlobalLock(hGlobal);
+            if (ptr == IntPtr.Zero)
+            {
+                Win32Clipboard.GlobalFree(hGlobal);
+                hGlobal = IntPtr.Zero;
+                return false;
+            }
+
+            try
+            {
+                if (!data.IsEmpty)
+                {
+                    fixed (byte* src = data)
+                    {
+                        Buffer.MemoryCopy(src, (void*)ptr, (nuint)data.Length, (nuint)data.Length);
+                    }
+                }
+            }
+            finally
+            {
+                Win32Clipboard.GlobalUnlock(hGlobal);
+            }
+
+            var result = Win32Clipboard.SetClipboardData(clipboardFormat, hGlobal);
+            if (result == IntPtr.Zero)
+            {
+                Win32Clipboard.GlobalFree(hGlobal);
+                hGlobal = IntPtr.Zero;
+                return false;
+            }
+
+            hGlobal = IntPtr.Zero;
+            return true;
+        }
+        finally
+        {
+            if (hGlobal != IntPtr.Zero)
+            {
+                Win32Clipboard.GlobalFree(hGlobal);
+            }
+        }
+    }
+
+    private static bool TryReadClipboardBytes(uint clipboardFormat, [NotNullWhen(true)] out byte[]? data)
+    {
+        data = null;
+
+        var handle = Win32Clipboard.GetClipboardData(clipboardFormat);
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var size = Win32Clipboard.GlobalSize(handle);
+        if (size == UIntPtr.Zero)
+        {
+            return false;
+        }
+
+        var ptr = Win32Clipboard.GlobalLock(handle);
+        if (ptr == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            data = new byte[(int)size];
+            Marshal.Copy(ptr, data, 0, data.Length);
+            return true;
+        }
+        finally
+        {
+            Win32Clipboard.GlobalUnlock(handle);
+        }
+    }
+
+    private static bool TryResolveClipboardFormat(string format, out uint clipboardFormat)
+    {
+        clipboardFormat = format switch
+        {
+            var value when string.Equals(value, TerminalClipboardFormats.WindowsDeviceIndependentBitmap, StringComparison.Ordinal) => Win32Clipboard.CF_DIB,
+            var value when string.Equals(value, TerminalClipboardFormats.WindowsDeviceIndependentBitmapV5, StringComparison.Ordinal) => Win32Clipboard.CF_DIBV5,
+            var value when string.Equals(value, TerminalClipboardFormats.Html, StringComparison.Ordinal) => Win32Clipboard.RegisterClipboardFormat("HTML Format"),
+            var value when string.Equals(value, TerminalClipboardFormats.RichText, StringComparison.Ordinal) => Win32Clipboard.RegisterClipboardFormat("Rich Text Format"),
+            var value when string.Equals(value, TerminalClipboardFormats.Png, StringComparison.Ordinal) => Win32Clipboard.RegisterClipboardFormat("PNG"),
+            var value when string.Equals(value, TerminalClipboardFormats.Tiff, StringComparison.Ordinal) => Win32Clipboard.RegisterClipboardFormat("TIFF"),
+            _ => 0,
+        };
+
+        if (clipboardFormat != 0)
+        {
+            return true;
+        }
+
+        var registered = Win32Clipboard.RegisterClipboardFormat(format);
+        if (registered != 0)
+        {
+            clipboardFormat = registered;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryMapClipboardFormatToName(uint clipboardFormat, [NotNullWhen(true)] out string? formatName)
+    {
+        formatName = clipboardFormat switch
+        {
+            Win32Clipboard.CF_UNICODETEXT => TerminalClipboardFormats.Text,
+            Win32Clipboard.CF_DIB => TerminalClipboardFormats.WindowsDeviceIndependentBitmap,
+            Win32Clipboard.CF_DIBV5 => TerminalClipboardFormats.WindowsDeviceIndependentBitmapV5,
+            _ => null,
+        };
+
+        if (formatName is not null)
+        {
+            return true;
+        }
+
+        var buffer = new char[256];
+        var length = Win32Clipboard.GetClipboardFormatName(clipboardFormat, buffer, buffer.Length);
+        if (length <= 0)
+        {
+            return false;
+        }
+
+        formatName = TerminalClipboardFormatHelper.Normalize(new string(buffer, 0, length));
+        return true;
     }
 
     private static bool TryOpenClipboard()

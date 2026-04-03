@@ -3,6 +3,7 @@
 // See license.txt file in the project root for full license information.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal.Internal;
 
@@ -18,7 +19,7 @@ public class VirtualTerminalBackend : ITerminalBackend
     private readonly TextWriter? _providedError;
     private readonly bool _disposeWriters;
     private readonly object _clipboardLock = new();
-    private string? _clipboardText;
+    private Dictionary<string, byte[]> _clipboardData = new(StringComparer.OrdinalIgnoreCase);
     private TerminalOptions? _options;
 
     private TextWriter _out = TextWriter.Null;
@@ -72,6 +73,8 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsClipboard = true,
             SupportsClipboardGet = true,
             SupportsClipboardSet = true,
+            SupportsClipboardFormatsGet = true,
+            SupportsClipboardFormatsSet = true,
             SupportsOsc52Clipboard = true,
             SupportsTitleGet = true,
             SupportsTitleSet = true,
@@ -210,8 +213,14 @@ public class VirtualTerminalBackend : ITerminalBackend
         }
         lock (_clipboardLock)
         {
-            text = _clipboardText;
-            return text is not null;
+            if (!_clipboardData.TryGetValue(TerminalClipboardFormats.Text, out var data))
+            {
+                text = null;
+                return false;
+            }
+
+            text = Encoding.UTF8.GetString(data);
+            return true;
         }
     }
 
@@ -235,7 +244,75 @@ public class VirtualTerminalBackend : ITerminalBackend
         }
         lock (_clipboardLock)
         {
-            _clipboardText = text.Length == 0 ? string.Empty : new string(text);
+            _clipboardData = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [TerminalClipboardFormats.Text] = Encoding.UTF8.GetBytes(text.ToString()),
+            };
+            return true;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetClipboardFormats([NotNullWhen(true)] out IReadOnlyList<string>? formats)
+    {
+        ThrowIfDisposed();
+        if (!Capabilities.SupportsClipboardFormatsGet && !Capabilities.SupportsClipboardGet && !Capabilities.SupportsClipboard)
+        {
+            formats = null;
+            return false;
+        }
+
+        lock (_clipboardLock)
+        {
+            formats = _clipboardData.Keys.OrderBy(static x => x, StringComparer.Ordinal).ToArray();
+            return true;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryGetClipboardData(string format, [NotNullWhen(true)] out byte[]? data)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(format);
+
+        if (!Capabilities.SupportsClipboardFormatsGet && !Capabilities.SupportsClipboardGet && !Capabilities.SupportsClipboard)
+        {
+            data = null;
+            return false;
+        }
+
+        var normalized = TerminalClipboardFormatHelper.Normalize(format);
+        lock (_clipboardLock)
+        {
+            if (!_clipboardData.TryGetValue(normalized, out var existing))
+            {
+                data = null;
+                return false;
+            }
+
+            data = existing.ToArray();
+            return true;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TrySetClipboardData(string format, ReadOnlySpan<byte> data)
+    {
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(format);
+
+        if (!Capabilities.SupportsClipboardFormatsSet && !Capabilities.SupportsClipboardSet && !Capabilities.SupportsClipboard)
+        {
+            return false;
+        }
+
+        var normalized = TerminalClipboardFormatHelper.Normalize(format);
+        lock (_clipboardLock)
+        {
+            _clipboardData = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [normalized] = data.ToArray(),
+            };
             return true;
         }
     }
@@ -284,6 +361,8 @@ public class VirtualTerminalBackend : ITerminalBackend
 
         var supportsClipboardGet = _baseCapabilities.SupportsClipboardGet || _baseCapabilities.SupportsClipboard;
         var supportsClipboardSet = _baseCapabilities.SupportsClipboardSet || _baseCapabilities.SupportsClipboard;
+        var supportsClipboardFormatsGet = _baseCapabilities.SupportsClipboardFormatsGet || supportsClipboardGet;
+        var supportsClipboardFormatsSet = _baseCapabilities.SupportsClipboardFormatsSet || supportsClipboardSet;
         var supportsOsc52Clipboard = ansiEnabled && _baseCapabilities.SupportsOsc52Clipboard && !(_baseCapabilities.IsOutputRedirected);
 
         Capabilities = new TerminalCapabilities
@@ -301,6 +380,8 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsCursorPositionSet = _baseCapabilities.SupportsCursorPositionSet,
             SupportsClipboardGet = supportsClipboardGet,
             SupportsClipboardSet = supportsClipboardSet,
+            SupportsClipboardFormatsGet = supportsClipboardFormatsGet,
+            SupportsClipboardFormatsSet = supportsClipboardFormatsSet,
             SupportsOsc52Clipboard = supportsOsc52Clipboard,
             SupportsClipboard = supportsClipboardGet || supportsClipboardSet,
             SupportsTitleGet = _baseCapabilities.SupportsTitleGet,
@@ -544,6 +625,8 @@ public class VirtualTerminalBackend : ITerminalBackend
             SupportsRawMode = false,
             SupportsCursorPositionGet = false,
             SupportsCursorPositionSet = false,
+            SupportsClipboardFormatsGet = false,
+            SupportsClipboardFormatsSet = false,
             SupportsTitleGet = false,
             SupportsTitleSet = false,
             SupportsWindowSize = false,

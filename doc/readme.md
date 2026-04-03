@@ -276,11 +276,40 @@ Terminal.Clipboard.Text = "Hello from XenoAtom.Terminal";
 var text = Terminal.Clipboard.Text;
 ```
 
+The low-level clipboard API also supports named binary formats, so terminal applications can exchange image payloads
+and other native clipboard representations without taking an image dependency:
+
+```csharp
+byte[] pngBytes = GetClipboardReadyPngBytes();
+
+Terminal.Clipboard.TrySetData(TerminalClipboardFormats.Png, pngBytes);
+
+if (Terminal.Clipboard.TryGetFormats(out var formats) &&
+    formats.Contains(TerminalClipboardFormats.Png) &&
+    Terminal.Clipboard.TryGetData(TerminalClipboardFormats.Png, out var pastedPng))
+{
+    UsePngBytes(pastedPng);
+}
+```
+
+`TerminalClipboardFormats` provides normalized cross-platform identifiers for common formats:
+
+- `text/plain`
+- `text/html`
+- `text/rtf`
+- `image/png`
+- `image/tiff`
+- `application/x-win32-cf-dib`
+- `application/x-win32-cf-dibv5`
+
+Clipboard image/data APIs expose the raw bytes provided by the OS. XenoAtom.Terminal does not decode or convert
+between image formats.
+
 Clipboard support is platform-dependent:
 
-- Windows: Win32 clipboard (`CF_UNICODETEXT`)
-- macOS: `pbcopy` / `pbpaste`
-- Linux: prefers `wl-copy` / `wl-paste` (Wayland), then `xclip` / `xsel` (X11)
+- Windows: Win32 clipboard (`CF_UNICODETEXT`, registered formats such as `PNG`, and native DIB formats)
+- macOS: AppKit pasteboard access for named formats; `pbcopy` / `pbpaste` remain a text fallback
+- Linux: prefers `wl-copy` / `wl-paste` (Wayland), then `xclip` (X11) for named formats, then `xsel` as a text fallback
 
 When a local system clipboard is not available (common in remote shells), Terminal can also set clipboard text via **OSC 52**
 when ANSI output is enabled. You can disable this fallback via `TerminalOptions.EnableOsc52Clipboard`.
@@ -290,6 +319,7 @@ Async helpers are available when you want timeout/cancellation:
 ```csharp
 var text = await Terminal.Clipboard.GetTextAsync(timeoutMs: 500);
 await Terminal.Clipboard.TrySetTextAsync("Hello".AsMemory(), timeoutMs: 500);
+var image = await Terminal.Clipboard.GetDataAsync(TerminalClipboardFormats.Png, timeoutMs: 500);
 ```
 
 ## Input
@@ -549,7 +579,7 @@ Some operations depend on the current backend and host terminal; unsupported ope
 | No `TerminalPasteEvent` on Windows | VT input decoding not active (or host doesn't emit VT sequences) | Use Windows Terminal / a VT-capable host and set `TerminalOptions.WindowsVtInputDecoder = Enabled` (or `Auto` if your host already enables it). Then use `using var _ = Terminal.EnableBracketedPasteInput();`. |
 | Terminal selection/copy stops working | Mouse reporting replaces the terminal's own selection UI | Hold **Shift** while dragging in most terminals, or disable mouse reporting when not needed. |
 | ReadLine editor is "basic" (no cursor movement) | Output is redirected or cursor positioning is unavailable | Run on an interactive terminal; avoid piping output; if needed for colors only, use `TerminalOptions.ForceAnsi`. |
-| Clipboard on Linux does nothing | No clipboard provider installed or no GUI session | Install `wl-copy`/`wl-paste` (Wayland) or `xclip`/`xsel` (X11). |
+| Clipboard on Linux does nothing | No clipboard provider installed or no GUI session | Install `wl-copy`/`wl-paste` (Wayland) or `xclip` for named formats (`xsel` only supports text). |
 | Clipboard set doesn't work over SSH | No local system clipboard | Enable OSC 52 fallback (`TerminalOptions.EnableOsc52Clipboard`, enabled by default) and use a terminal that supports it. |
 | Windows mouse doesn’t work in some terminals | The host may require VT input mode for certain sequences | Set `TerminalOptions.WindowsVtInputDecoder = Enabled`. |
 | Unexpected input when mixing with `Console.*` | `Console.ReadLine/ReadKey` consumes the same stream | When input is running, use `Terminal.ReadEventsAsync`/`ReadLineAsync` instead of `Console.*`. |

@@ -38,7 +38,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 - **Scopes + state management**:
   - Reliable scopes: alternate screen, raw/cbreak mode, bracketed paste, mouse reporting, hide cursor
   - State tracking: style/colors/decorations, title, cursor position/visibility, window size
-- **Clipboard**: cross-platform text copy/paste (including OSC 52 for remote shells)
+- **Clipboard**: cross-platform text plus named clipboard formats (for example PNG images), including OSC 52 text fallback for remote shells
 - **CI + testing**:
   - CI-aware backend keeps colors when output is redirected
   - In-memory backend for deterministic tests (capture output + inject events)

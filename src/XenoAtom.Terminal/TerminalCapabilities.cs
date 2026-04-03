@@ -84,6 +84,16 @@ public sealed class TerminalCapabilities
     public bool SupportsClipboardSet { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether named clipboard formats can be enumerated.
+    /// </summary>
+    public bool SupportsClipboardFormatsGet { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether named clipboard formats can be written.
+    /// </summary>
+    public bool SupportsClipboardFormatsSet { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether OSC 52 clipboard sequences can be emitted (set-only).
     /// </summary>
     public bool SupportsOsc52Clipboard { get; init; }

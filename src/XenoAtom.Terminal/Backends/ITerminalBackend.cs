@@ -103,6 +103,21 @@ public interface ITerminalBackend : IDisposable
     bool TrySetClipboardText(ReadOnlySpan<char> text);
 
     /// <summary>
+    /// Tries to get the currently advertised clipboard formats (best effort).
+    /// </summary>
+    bool TryGetClipboardFormats([NotNullWhen(true)] out IReadOnlyList<string>? formats);
+
+    /// <summary>
+    /// Tries to get clipboard data for the specified format (best effort).
+    /// </summary>
+    bool TryGetClipboardData(string format, [NotNullWhen(true)] out byte[]? data);
+
+    /// <summary>
+    /// Tries to set clipboard data for the specified format (best effort).
+    /// </summary>
+    bool TrySetClipboardData(string format, ReadOnlySpan<byte> data);
+
+    /// <summary>
     /// Gets the current window size in character cells.
     /// </summary>
     TerminalSize GetWindowSize();

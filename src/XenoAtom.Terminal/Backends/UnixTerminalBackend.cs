@@ -77,6 +77,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         SupportsClipboard = false,
         SupportsClipboardGet = false,
         SupportsClipboardSet = false,
+        SupportsClipboardFormatsGet = false,
+        SupportsClipboardFormatsSet = false,
         SupportsOsc52Clipboard = false,
         SupportsTitleGet = true,
         SupportsTitleSet = false,
@@ -141,8 +143,10 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
 
         var hasClipboardProvider = UnixClipboard.TryDetectProvider(out _clipboardProvider);
         var supportsOsc52Clipboard = ansiEnabled && !isOutputRedirected && !string.Equals(term, "linux", StringComparison.OrdinalIgnoreCase);
-        var supportsClipboardGet = hasClipboardProvider;
-        var supportsClipboardSet = hasClipboardProvider || supportsOsc52Clipboard;
+        var supportsClipboardGet = hasClipboardProvider && _clipboardProvider.SupportsText;
+        var supportsClipboardSet = (hasClipboardProvider && _clipboardProvider.SupportsText) || supportsOsc52Clipboard;
+        var supportsClipboardFormatsGet = hasClipboardProvider && _clipboardProvider.SupportsFormats;
+        var supportsClipboardFormatsSet = hasClipboardProvider && _clipboardProvider.SupportsFormats;
 
         var supportsAlternateScreen = ansiEnabled && !isOutputRedirected;
         var supportsCursorVisibility = ansiEnabled && !isOutputRedirected;
@@ -170,6 +174,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             SupportsCursorPositionSet = supportsCursorPositionSet,
             SupportsClipboardGet = supportsClipboardGet,
             SupportsClipboardSet = supportsClipboardSet,
+            SupportsClipboardFormatsGet = supportsClipboardFormatsGet,
+            SupportsClipboardFormatsSet = supportsClipboardFormatsSet,
             SupportsOsc52Clipboard = supportsOsc52Clipboard,
             SupportsClipboard = supportsClipboardGet || supportsClipboardSet,
             SupportsTitleGet = true,
@@ -537,6 +543,18 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         return UnixClipboard.TryGetText(_clipboardProvider, out text);
     }
 
+    /// <inheritdoc />
+    public bool TryGetClipboardFormats([NotNullWhen(true)] out IReadOnlyList<string>? formats)
+    {
+        return UnixClipboard.TryGetFormats(_clipboardProvider, out formats);
+    }
+
+    /// <inheritdoc />
+    public bool TryGetClipboardData(string format, [NotNullWhen(true)] out byte[]? data)
+    {
+        return UnixClipboard.TryGetData(_clipboardProvider, format, out data);
+    }
+
     private async ValueTask<TerminalPosition?> RequestCursorPositionFromInputLoopAsync(int timeoutMs, CancellationToken cancellationToken)
     {
         var tcs = new TaskCompletionSource<TerminalPosition>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -614,6 +632,22 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         }
 
         return Osc52Clipboard.TrySetText(Out, text, _options.Osc52ClipboardMaxBytes);
+    }
+
+    /// <inheritdoc />
+    public bool TrySetClipboardData(string format, ReadOnlySpan<byte> data)
+    {
+        if (UnixClipboard.TrySetData(_clipboardProvider, format, data))
+        {
+            return true;
+        }
+
+        if (!TerminalClipboardFormatHelper.IsText(format))
+        {
+            return false;
+        }
+
+        return TrySetClipboardText(Encoding.UTF8.GetString(data).AsSpan());
     }
 
     /// <inheritdoc />
