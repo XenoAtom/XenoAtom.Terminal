@@ -286,7 +286,6 @@ public static partial class Terminal
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
         AppDomain.CurrentDomain.UnhandledException += (_, _) => Cleanup();
-        TaskScheduler.UnobservedTaskException += (_, _) => Cleanup();
     }
 
     /// <summary>

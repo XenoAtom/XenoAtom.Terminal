@@ -3,6 +3,7 @@
 // See license.txt file in the project root for full license information.
 
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal.Backends;
 
@@ -39,6 +40,18 @@ public class TerminalTests
         }
 
         Assert.IsFalse(Terminal.IsInitialized);
+    }
+
+    [TestMethod]
+    public async Task UnobservedTaskException_DoesNotDisposeGlobalInstance()
+    {
+        var backend = new InMemoryTerminalBackend();
+        Terminal.Initialize(backend);
+
+        await RaiseUnobservedTaskExceptionAsync();
+
+        Terminal.Write("still alive");
+        Assert.AreEqual("still alive", backend.GetOutText());
     }
 
     [TestMethod]
@@ -529,6 +542,46 @@ public class TerminalTests
             count++;
             index += needle.Length;
         }
+    }
+
+    private static async Task RaiseUnobservedTaskExceptionAsync()
+    {
+        var unobserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<UnobservedTaskExceptionEventArgs> handler = (_, args) =>
+        {
+            args.SetObserved();
+            unobserved.TrySetResult();
+        };
+
+        TaskScheduler.UnobservedTaskException += handler;
+        try
+        {
+            var weakTask = CreateUnobservedFaultedTask();
+
+            for (var i = 0; i < 10 && !unobserved.Task.IsCompleted; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+
+                await Task.WhenAny(unobserved.Task, Task.Delay(50));
+            }
+
+            Assert.IsFalse(weakTask.IsAlive, "The faulted task was not collected.");
+            Assert.IsTrue(unobserved.Task.IsCompleted, "Expected TaskScheduler.UnobservedTaskException to be raised.");
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= handler;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference CreateUnobservedFaultedTask()
+    {
+        var task = Task.Run(static () => throw new InvalidOperationException("Unobserved test exception."));
+        Assert.IsTrue(SpinWait.SpinUntil(() => task.IsCompleted, TimeSpan.FromSeconds(5)), "The faulted task did not complete.");
+        return new WeakReference(task);
     }
 
     private static TerminalCapabilities CreateCiCapabilities()
