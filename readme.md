@@ -60,6 +60,7 @@ For more details on how to use XenoAtom.Terminal, please visit the [user guide](
 
 ## 🧪 Sample
 
+- `samples/HelloImage` displays a small markup header and a sample image with terminal graphics.
 - `samples/HelloTerminal` prints all input events (key/mouse/resize/text/signal) and demonstrates scopes.
 - `samples/HelloReadLine` demonstrates the interactive `ReadLine` editor (history, selection, completion, and markup rendering).
 - `samples/LogTerminal` prints colored pseudo log lines (timestamp/level/category/message) and is run in CI to validate ANSI output.

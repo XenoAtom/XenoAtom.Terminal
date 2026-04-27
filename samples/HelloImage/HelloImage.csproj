@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\snow_photo.jpg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XenoAtom.Terminal.Graphics\XenoAtom.Terminal.Graphics.csproj" />
+    <ProjectReference Include="..\..\src\XenoAtom.Terminal\XenoAtom.Terminal.csproj" />
+  </ItemGroup>
+</Project>

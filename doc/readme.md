@@ -695,6 +695,7 @@ var outText = backend.GetOutText();
 
 ## Samples
 
+- `samples/HelloImage` displays a small markup header and a sample image with terminal graphics.
 - `samples/HelloTerminal` prints all input events and demonstrates scopes.
 - `samples/HelloReadLine` demonstrates the interactive editor (prompt markup, history, selection, mouse, completion, custom handlers).
 - `samples/LogTerminal` prints colored pseudo log lines and is run in CI to validate ANSI output.

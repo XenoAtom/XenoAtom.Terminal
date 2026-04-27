@@ -35,6 +35,7 @@
     </PackageReference>
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
     <PackageReference Include="XenoAtom.Ansi" />
     <ProjectReference Include="..\XenoAtom.Terminal\XenoAtom.Terminal.csproj" />
