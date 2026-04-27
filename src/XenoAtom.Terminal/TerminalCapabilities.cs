@@ -147,4 +147,9 @@ public sealed class TerminalCapabilities
     /// Gets the detected terminal name or host identifier (best effort).
     /// </summary>
     public string? TerminalName { get; init; }
+
+    /// <summary>
+    /// Gets detected terminal graphics capabilities.
+    /// </summary>
+    public TerminalGraphicsCapabilities Graphics { get; init; } = TerminalGraphicsCapabilities.None;
 }

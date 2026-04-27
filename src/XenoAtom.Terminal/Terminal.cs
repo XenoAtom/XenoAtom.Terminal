@@ -74,6 +74,9 @@ public static partial class Terminal
     /// <inheritdoc cref="TerminalInstance.Clipboard" />
     public static TerminalClipboard Clipboard => Instance.Clipboard;
 
+    /// <inheritdoc cref="TerminalInstance.Graphics" />
+    public static TerminalGraphicsService Graphics => Instance.Graphics;
+
     /// <inheritdoc cref="TerminalInstance.Title" />
     public static string Title
     {

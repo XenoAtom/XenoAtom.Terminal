@@ -28,6 +28,8 @@ internal static unsafe class Win32Console
     public const uint DISABLE_NEWLINE_AUTO_RETURN = 0x0008;
     public const uint ENABLE_LVB_GRID_WORLDWIDE = 0x0010;
 
+    public const uint TH32CS_SNAPPROCESS = 0x00000002;
+
     public const ushort KEY_EVENT = 0x0001;
     public const ushort MOUSE_EVENT = 0x0002;
     public const ushort WINDOW_BUFFER_SIZE_EVENT = 0x0004;
@@ -65,6 +67,24 @@ internal static unsafe class Win32Console
     public static extern bool SetConsoleMode(nint hConsoleHandle, uint dwMode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(nint hObject);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern nint GetConsoleWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern nint CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool Process32FirstW(nint hSnapshot, ref PROCESSENTRY32 lppe);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool Process32NextW(nint hSnapshot, ref PROCESSENTRY32 lppe);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool ReadConsoleInputW(nint hConsoleInput, INPUT_RECORD* lpBuffer, uint nLength, out uint lpNumberOfEventsRead);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -85,6 +105,23 @@ internal static unsafe class Win32Console
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern uint WaitForSingleObject(nint hHandle, uint dwMilliseconds);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct PROCESSENTRY32
+    {
+        public uint dwSize;
+        public uint cntUsage;
+        public uint th32ProcessID;
+        public nint th32DefaultHeapID;
+        public uint th32ModuleID;
+        public uint cntThreads;
+        public uint th32ParentProcessID;
+        public int pcPriClassBase;
+        public uint dwFlags;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szExeFile;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct COORD

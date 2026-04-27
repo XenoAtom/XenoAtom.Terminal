@@ -58,7 +58,7 @@ public class TerminalTests
     public void WriteMarkup_RendersAnsi_WhenEnabled()
     {
         var backend = new InMemoryTerminalBackend();
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         Terminal.WriteMarkup("[red]Hi[/]");
 
@@ -297,7 +297,7 @@ public class TerminalTests
     public void ForegroundBackgroundColor_AreSettable()
     {
         var backend = new InMemoryTerminalBackend();
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         Terminal.ForegroundColor = ConsoleColor.Red;
         Terminal.BackgroundColor = ConsoleColor.Black;
@@ -313,7 +313,7 @@ public class TerminalTests
         var ciCaps = CreateCiCapabilities();
 
         var backend = new InMemoryTerminalBackend(capabilities: ciCaps);
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         Terminal.ForegroundColor = ConsoleColor.Red;
 

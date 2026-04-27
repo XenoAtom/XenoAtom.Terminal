@@ -54,6 +54,7 @@ public sealed partial class TerminalInstance : IDisposable
     private readonly TerminalWindow _window;
     private readonly TerminalClipboard _clipboard;
     private readonly TextReader _in;
+    private TerminalGraphicsService? _graphics;
 
     private AnsiStyle _style = AnsiStyle.Default;
     private string? _readLineKillBuffer;
@@ -124,6 +125,11 @@ public sealed partial class TerminalInstance : IDisposable
     /// Gets clipboard operations (best effort).
     /// </summary>
     public TerminalClipboard Clipboard => _clipboard;
+
+    /// <summary>
+    /// Gets terminal graphics capability and probing helpers.
+    /// </summary>
+    public TerminalGraphicsService Graphics => _graphics ??= new TerminalGraphicsService(this);
 
     /// <summary>
     /// Gets or sets the current text style (best effort).

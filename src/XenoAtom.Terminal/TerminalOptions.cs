@@ -73,5 +73,10 @@ public sealed class TerminalOptions
     /// VT sequences are only produced for console input when <c>ENABLE_VIRTUAL_TERMINAL_INPUT</c> is enabled on the input handle.
     /// </remarks>
     public TerminalWindowsVtInputDecoderMode WindowsVtInputDecoder { get; set; } = TerminalWindowsVtInputDecoderMode.Auto;
+
+    /// <summary>
+    /// Gets graphics detection and probing options.
+    /// </summary>
+    public TerminalGraphicsOptions Graphics { get; } = new();
 }
 

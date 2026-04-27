@@ -17,6 +17,7 @@ It keeps a familiar Console-like surface while adding terminal-native features t
   - [Markup](#markup)
   - [Atomic output](#atomic-output)
   - [Links (OSC 8)](#links-osc-8)
+  - [Terminal graphics and inline images](#terminal-graphics-and-inline-images)
 - [Console-like state (title, style, cursor, window)](#console-like-state-title-style-cursor-window)
   - [Title](#title)
   - [Style and colors (`AnsiStyle` / `AnsiColor`)](#style-and-colors-ansistyle--ansicolor)
@@ -68,6 +69,7 @@ Legend: ✅ supported · ⚠️ partial/limited · ❌ not supported
 | Atomic, ANSI-safe output | ✅ (serialized writers + `WriteAtomic`) | ❌ |
 | Markup and styling | ✅ (`WriteMarkup`, `AnsiStyle`, `AnsiColor`) | ❌ |
 | Hyperlinks (OSC 8) | ✅ (when ANSI is enabled) | ❌ |
+| Terminal graphics capabilities | ✅ (`Terminal.Graphics`) | ❌ |
 | Alternate screen + cursor scopes | ✅ (`UseAlternateScreen`, `HideCursor`, `UseRawMode`, …) | ❌ |
 | Unified async input events | ✅ (`ReadEventsAsync`) | ❌ |
 | Mouse events | ✅ (opt-in; when supported) | ❌ |
@@ -125,7 +127,7 @@ XenoAtom.Terminal selects a backend automatically (Windows Console on Windows, U
 Inspect the detected capabilities:
 
 ```csharp
-Terminal.WriteLine($"Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.Capabilities.ColorLevel}, Mouse={Terminal.Capabilities.SupportsMouse}, PrivateModes={Terminal.Capabilities.SupportsPrivateModes}");
+Terminal.WriteLine($"Ansi={Terminal.Capabilities.AnsiEnabled}, Color={Terminal.Capabilities.ColorLevel}, Mouse={Terminal.Capabilities.SupportsMouse}, Graphics={Terminal.Graphics.Capabilities.PreferredProtocol}");
 ```
 
 > [!NOTE]
@@ -211,6 +213,67 @@ Terminal.WriteAtomic(w =>
     w.Write("\n");
 });
 ```
+
+### Terminal graphics and inline images
+
+`XenoAtom.Terminal` owns graphics capability detection and diagnostics. It does not decode images itself; direct image output is provided by the optional `XenoAtom.Terminal.Graphics` package.
+
+```csharp
+var capabilities = Terminal.Graphics.Capabilities;
+Terminal.WriteLine($"Graphics={capabilities.PreferredProtocol}, State={capabilities.SupportState}");
+foreach (var diagnostic in capabilities.Diagnostics)
+{
+    Terminal.WriteLine($"- {diagnostic}");
+}
+```
+
+The detector selects Kitty graphics, Sixel, or iTerm2 inline images from explicit options, environment overrides, terminal environment variables, and backend capabilities. Windows Terminal is treated as a Sixel-capable terminal when `WT_SESSION`/`WT_PROFILE_ID`, the terminal name, or the Windows Terminal parent/console-host heuristic identifies it. Visual Studio debug sessions may launch a Windows Terminal window without propagating those `WT_*` variables, so `VSAPPIDNAME`/`__VSAPPIDDIR` are also treated as a diagnosable Sixel heuristic; set `XENOATOM_TERMINAL_GRAPHICS=none` if that debug host is actually a console without Sixel support.
+
+Useful validation overrides:
+
+```powershell
+$env:XENOATOM_TERMINAL_GRAPHICS = "sixel"   # auto|none|kitty|iterm2|sixel
+$env:XENOATOM_TERMINAL_CELL_SIZE = "9x18"   # optional WIDTHxHEIGHT cell metrics
+```
+
+To write an image directly, reference `XenoAtom.Terminal.Graphics`:
+
+```csharp
+using XenoAtom.Terminal.Graphics;
+
+await TerminalGraphics.WriteImageAsync(
+    TerminalImageSource.FromFile("logo.png"),
+    new TerminalImageWriteOptions
+    {
+        CellSize = new TerminalImageSize(24, 12),
+        ReserveCellArea = true,
+        FallbackText = "[logo]\n",
+    });
+```
+
+Sixel output is cached by source identity/version, target size, pixel metrics, matte/quality settings, payload chunking, and
+Sixel encoder options. Static images therefore decode, rasterize, palette-map, and produce their Sixel payload once per
+unique request instead of repeating quantization on every redraw. Floyd-Steinberg dithering is disabled by default because
+it is much more expensive than nearest-palette quantization; enable it only when the visual quality tradeoff is worth the
+one-time encode cost for a cached/static image.
+
+For high-throughput Sixel streams where speed is more important than adaptive color fidelity, use the fixed RGB332 palette:
+
+```csharp
+await TerminalGraphics.WriteImageAsync(
+    frameSource,
+    new TerminalImageWriteOptions
+    {
+        Protocol = TerminalGraphicsProtocol.Sixel,
+        SixelOptions = new TerminalSixelEncoderOptions
+        {
+            PaletteMode = TerminalSixelPaletteMode.FixedRgb332,
+            EnableDithering = false,
+        },
+    });
+```
+
+For retained UI controls, use `XenoAtom.Terminal.UI.Graphics.Image` and `TerminalImageGraphicsPresenter` from the UI packages.
 
 ## Console-like state (title, style, cursor, window)
 

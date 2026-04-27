@@ -12,9 +12,10 @@ namespace XenoAtom.Terminal.Backends;
 /// <summary>
 /// A virtual backend for tests and headless scenarios (including CI logs that support ANSI colors).
 /// </summary>
-public class VirtualTerminalBackend : ITerminalBackend
+public class VirtualTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBackend
 {
     private readonly TerminalEventBroadcaster _events = new();
+    private readonly TerminalGraphicsProbeCoordinator _graphicsProbeCoordinator = new();
     private readonly TextWriter? _providedOut;
     private readonly TextWriter? _providedError;
     private readonly bool _disposeWriters;
@@ -365,6 +366,14 @@ public class VirtualTerminalBackend : ITerminalBackend
         var supportsClipboardFormatsSet = _baseCapabilities.SupportsClipboardFormatsSet || supportsClipboardSet;
         var supportsOsc52Clipboard = ansiEnabled && _baseCapabilities.SupportsOsc52Clipboard && !(_baseCapabilities.IsOutputRedirected);
 
+        var graphics = TerminalGraphicsDetector.Detect(
+            ansiEnabled,
+            _baseCapabilities.IsOutputRedirected,
+            _baseCapabilities.IsInputRedirected,
+            _baseCapabilities.TerminalName,
+            _size,
+            options.Graphics,
+            TerminalGraphicsDetector.CaptureEnvironment());
         Capabilities = new TerminalCapabilities
         {
             AnsiEnabled = ansiEnabled,
@@ -394,6 +403,7 @@ public class VirtualTerminalBackend : ITerminalBackend
             IsOutputRedirected = _baseCapabilities.IsOutputRedirected,
             IsInputRedirected = _baseCapabilities.IsInputRedirected,
             TerminalName = _baseCapabilities.TerminalName,
+            Graphics = graphics,
         };
 
         _ansi = new AnsiWriter(_out, TerminalAnsiCapabilities.Create(Capabilities, options));
@@ -517,6 +527,8 @@ public class VirtualTerminalBackend : ITerminalBackend
     /// <inheritdoc />
     public bool IsInputRunning { get; private set; }
 
+    TerminalGraphicsProbeCoordinator ITerminalGraphicsProbeBackend.GraphicsProbeCoordinator => _graphicsProbeCoordinator;
+
     /// <inheritdoc />
     public void StartInput(TerminalInputOptions options)
     {
@@ -542,6 +554,27 @@ public class VirtualTerminalBackend : ITerminalBackend
     /// <inheritdoc />
     public IAsyncEnumerable<TerminalEvent> ReadEventsAsync(CancellationToken cancellationToken) => _events.ReadEventsAsync(cancellationToken);
 
+
+    bool ITerminalGraphicsProbeBackend.TryWriteGraphicsProbe(string sequence)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(sequence);
+        if (!Capabilities.AnsiEnabled || Capabilities.IsOutputRedirected || Capabilities.IsInputRedirected)
+        {
+            return false;
+        }
+
+        try
+        {
+            _out.Write(sequence);
+            _out.Flush();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
     /// <summary>
     /// Pushes a synthetic input event into the backend event stream.
     /// </summary>

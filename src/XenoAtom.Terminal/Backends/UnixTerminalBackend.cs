@@ -16,11 +16,12 @@ namespace XenoAtom.Terminal.Backends;
 /// </summary>
 [SupportedOSPlatform("linux")]
 [SupportedOSPlatform("macos")]
-internal sealed class UnixTerminalBackend : ITerminalBackend
+internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBackend
 {
     private readonly Lock _inputLock = new();
     private readonly Lock _termiosLock = new();
     private readonly TerminalEventBroadcaster _events = new();
+    private readonly TerminalGraphicsProbeCoordinator _graphicsProbeCoordinator = new();
     private readonly Lock _cursorPositionLock = new();
 
     private readonly Action<AnsiCursorPosition> _cursorPositionReportHandler;
@@ -159,6 +160,14 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             supportsCursorPositionSet &= terminfo.SupportsCursorPositioning;
         }
 
+        var graphics = TerminalGraphicsDetector.Detect(
+            ansiEnabled,
+            isOutputRedirected,
+            isInputRedirected,
+            terminalName,
+            default,
+            options.Graphics,
+            TerminalGraphicsDetector.CaptureEnvironment());
         Capabilities = new TerminalCapabilities
         {
             AnsiEnabled = ansiEnabled,
@@ -188,6 +197,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             IsOutputRedirected = isOutputRedirected,
             IsInputRedirected = isInputRedirected,
             TerminalName = terminalName,
+            Graphics = graphics,
         };
 
         _title = string.Empty;
@@ -663,10 +673,36 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
     }
 
     /// <inheritdoc />
+
     public void Flush()
+
     {
+
         Out.Flush();
+
         Error.Flush();
+
+    }
+
+
+    bool ITerminalGraphicsProbeBackend.TryWriteGraphicsProbe(string sequence)
+    {
+        ArgumentNullException.ThrowIfNull(sequence);
+        if (!Capabilities.AnsiEnabled || Capabilities.IsOutputRedirected || Capabilities.IsInputRedirected)
+        {
+            return false;
+        }
+
+        try
+        {
+            Out.Write(sequence);
+            Out.Flush();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
@@ -988,6 +1024,8 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
         }
     }
 
+    TerminalGraphicsProbeCoordinator ITerminalGraphicsProbeBackend.GraphicsProbeCoordinator => _graphicsProbeCoordinator;
+
     /// <inheritdoc />
     public bool IsInputRunning
     {
@@ -1095,7 +1133,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             if (pollResult == 0)
             {
                 // Flush pending partial sequences (notably ESC-as-a-key) after an idle period.
-                decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler);
+                decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator);
                 continue;
             }
 
@@ -1125,7 +1163,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
                     utf8Decoder.Convert(bytes, byteOffset, byteCount - byteOffset, chars, 0, chars.Length, flush: false, out var bytesUsed, out var charsUsed, out _);
                     if (charsUsed > 0)
                     {
-                        decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events, _cursorPositionReportHandler);
+                        decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator);
                     }
 
                     if (bytesUsed <= 0)
@@ -1137,7 +1175,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend
             }
         }
 
-        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler);
+        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator);
     }
 
     private void PublishResizeIfChanged()

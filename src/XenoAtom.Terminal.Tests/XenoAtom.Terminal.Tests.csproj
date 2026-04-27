@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\XenoAtom.Terminal\XenoAtom.Terminal.csproj" />
+    <ProjectReference Include="..\XenoAtom.Terminal.Graphics\XenoAtom.Terminal.Graphics.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,6 +24,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="MSTest.TestFramework" />
+    <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 
 </Project>

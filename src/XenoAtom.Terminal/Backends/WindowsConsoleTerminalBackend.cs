@@ -17,10 +17,11 @@ namespace XenoAtom.Terminal.Backends;
 /// Windows Console backend using Win32 console APIs (ReadConsoleInputW).
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
+internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBackend
 {
     private readonly Lock _inputLock = new();
     private readonly TerminalEventBroadcaster _events = new();
+    private readonly TerminalGraphicsProbeCoordinator _graphicsProbeCoordinator = new();
     private readonly bool[] _keyDown = new bool[256];
 
     private TerminalOptions? _options;
@@ -144,6 +145,15 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             colorLevel = TerminalColorLevel.None;
         }
 
+        var terminalName = DetectTerminalName();
+        var graphics = TerminalGraphicsDetector.Detect(
+            ansiEnabled,
+            isOutputRedirected,
+            isInputRedirected,
+            terminalName,
+            default,
+            options.Graphics,
+            TerminalGraphicsDetector.CaptureEnvironment());
         Capabilities = new TerminalCapabilities
         {
             AnsiEnabled = ansiEnabled,
@@ -171,7 +181,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             SupportsBeep = true,
             IsOutputRedirected = isOutputRedirected,
             IsInputRedirected = isInputRedirected,
-            TerminalName = DetectTerminalName(),
+            TerminalName = terminalName,
+            Graphics = graphics,
         };
 
         _ansi = new AnsiWriter(Out, TerminalAnsiCapabilities.Create(Capabilities, options));
@@ -205,7 +216,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
     private static string DetectTerminalName()
     {
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION")))
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION"))
+            || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_PROFILE_ID")))
         {
             return "WindowsTerminal";
         }
@@ -221,8 +233,132 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             return termProgram;
         }
 
-        return "Windows";
+        if (IsWindowsTerminalConsoleHost() || IsWindowsTerminalAncestor())
+        {
+            return "WindowsTerminal";
+        }
+
+        return HasVisualStudioDebugEnvironment() ? "VisualStudio" : "Windows";
     }
+
+    private static bool IsWindowsTerminalConsoleHost()
+    {
+        var consoleWindow = Win32Console.GetConsoleWindow();
+        if (IsInvalidHandle(consoleWindow))
+        {
+            return false;
+        }
+
+        _ = Win32Console.GetWindowThreadProcessId(consoleWindow, out var processId);
+        return processId != 0
+            && TryGetProcessName((int)processId, out var processName)
+            && IsWindowsTerminalProcessName(processName);
+    }
+
+    private static bool HasVisualStudioDebugEnvironment()
+        => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("VSAPPIDNAME"))
+        || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("__VSAPPIDDIR"));
+
+    private static bool IsWindowsTerminalAncestor()
+    {
+        var snapshot = Win32Console.CreateToolhelp32Snapshot(Win32Console.TH32CS_SNAPPROCESS, 0);
+        if (IsInvalidHandle(snapshot))
+        {
+            return false;
+        }
+
+        try
+        {
+            var processes = new Dictionary<int, (int ParentProcessId, string ProcessName)>();
+            var entry = new Win32Console.PROCESSENTRY32
+            {
+                dwSize = (uint)Marshal.SizeOf<Win32Console.PROCESSENTRY32>(),
+            };
+            if (!Win32Console.Process32FirstW(snapshot, ref entry))
+            {
+                return false;
+            }
+
+            do
+            {
+                processes[(int)entry.th32ProcessID] = ((int)entry.th32ParentProcessID, entry.szExeFile ?? string.Empty);
+            }
+            while (Win32Console.Process32NextW(snapshot, ref entry));
+
+            var processId = Environment.ProcessId;
+            var visited = new HashSet<int>();
+            for (var depth = 0;
+                depth < 16 && processes.TryGetValue(processId, out var process) && visited.Add(processId);
+                depth++)
+            {
+                if (IsWindowsTerminalProcessName(process.ProcessName))
+                {
+                    return true;
+                }
+
+                processId = process.ParentProcessId;
+            }
+        }
+        catch
+        {
+            // Best-effort heuristic only. The standard WT_SESSION/WT_PROFILE_ID variables remain authoritative.
+        }
+        finally
+        {
+            Win32Console.CloseHandle(snapshot);
+        }
+
+        return false;
+    }
+
+    private static bool TryGetProcessName(int processId, out string processName)
+    {
+        processName = string.Empty;
+
+        var snapshot = Win32Console.CreateToolhelp32Snapshot(Win32Console.TH32CS_SNAPPROCESS, 0);
+        if (IsInvalidHandle(snapshot))
+        {
+            return false;
+        }
+
+        try
+        {
+            var entry = new Win32Console.PROCESSENTRY32
+            {
+                dwSize = (uint)Marshal.SizeOf<Win32Console.PROCESSENTRY32>(),
+            };
+            if (!Win32Console.Process32FirstW(snapshot, ref entry))
+            {
+                return false;
+            }
+
+            do
+            {
+                if ((int)entry.th32ProcessID == processId)
+                {
+                    processName = entry.szExeFile ?? string.Empty;
+                    return processName.Length > 0;
+                }
+            }
+            while (Win32Console.Process32NextW(snapshot, ref entry));
+        }
+        catch
+        {
+            // Best-effort heuristic only. Environment variables and explicit overrides remain authoritative.
+        }
+        finally
+        {
+            Win32Console.CloseHandle(snapshot);
+        }
+
+        return false;
+    }
+
+    private static bool IsWindowsTerminalProcessName(string processName)
+        => string.Equals(processName, "WindowsTerminal.exe", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(processName, "WindowsTerminalPreview.exe", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(processName, "OpenConsole.exe", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(processName, "wt.exe", StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public TerminalSize GetSize()
@@ -994,6 +1130,26 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         Error.Flush();
     }
 
+    bool ITerminalGraphicsProbeBackend.TryWriteGraphicsProbe(string sequence)
+    {
+        ArgumentNullException.ThrowIfNull(sequence);
+        if (!Capabilities.AnsiEnabled || Capabilities.IsOutputRedirected || Capabilities.IsInputRedirected)
+        {
+            return false;
+        }
+
+        try
+        {
+            Out.Write(sequence);
+            Out.Flush();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// <inheritdoc />
     public void Clear(TerminalClearKind kind)
     {
@@ -1323,6 +1479,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
         return TerminalScope.Create(() => Win32Console.SetConsoleMode(_inputHandle, previousMode));
     }
 
+    TerminalGraphicsProbeCoordinator ITerminalGraphicsProbeBackend.GraphicsProbeCoordinator => _graphicsProbeCoordinator;
+
     /// <inheritdoc />
     public bool IsInputRunning
     {
@@ -1445,7 +1603,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             var wait = Win32Console.WaitForSingleObject(_inputHandle, 50);
             if (wait == Win32Console.WAIT_TIMEOUT)
             {
-                vtDecoder?.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events);
+                vtDecoder?.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, graphicsProbeCoordinator: _graphicsProbeCoordinator);
                 continue;
             }
 
@@ -1467,7 +1625,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
             }
         }
 
-        vtDecoder?.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events);
+        vtDecoder?.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, graphicsProbeCoordinator: _graphicsProbeCoordinator);
     }
 
     private void PrepareInputMode()
@@ -1614,7 +1772,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend
 
             if (useVt)
             {
-                vtDecoder!.Decode(vtOne, isFinalChunk: false, _inputOptions, _events);
+                vtDecoder!.Decode(vtOne, isFinalChunk: false, _inputOptions, _events, graphicsProbeCoordinator: _graphicsProbeCoordinator);
                 wasDown = true;
                 continue;
             }

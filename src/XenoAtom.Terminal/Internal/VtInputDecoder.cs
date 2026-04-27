@@ -22,7 +22,7 @@ internal sealed class VtInputDecoder : IDisposable
         _pasteBuilder = new StringBuilder(256);
     }
 
-    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Action<AnsiCursorPosition>? cursorPositionReport = null)
+    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Action<AnsiCursorPosition>? cursorPositionReport = null, TerminalGraphicsProbeCoordinator? graphicsProbeCoordinator = null)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -34,6 +34,11 @@ internal sealed class VtInputDecoder : IDisposable
 
         foreach (var token in _tokens)
         {
+            if (graphicsProbeCoordinator?.TryConsume(token) == true)
+            {
+                continue;
+            }
+
             if (token is CsiToken csiReport && csiReport.TryGetCursorPositionReport(out var cursorPosition))
             {
                 cursorPositionReport?.Invoke(cursorPosition);
@@ -330,6 +335,9 @@ internal sealed class VtInputDecoder : IDisposable
             case OscToken osc:
                 _pasteBuilder.Append(osc.Raw ?? ReconstructOsc(osc));
                 break;
+            case AnsiStringControlToken stringControl:
+                _pasteBuilder.Append(stringControl.Raw ?? ReconstructStringControl(stringControl));
+                break;
             case SgrToken sgr:
                 if (!string.IsNullOrEmpty(sgr.Raw))
                 {
@@ -357,6 +365,19 @@ internal sealed class VtInputDecoder : IDisposable
         return sb.ToString();
     }
 
+    private static string ReconstructStringControl(AnsiStringControlToken token)
+    {
+        var introducer = token.Kind switch
+        {
+            AnsiStringControlKind.Dcs => 'P',
+            AnsiStringControlKind.Sos => 'X',
+            AnsiStringControlKind.Pm => '^',
+            AnsiStringControlKind.Apc => '_',
+            _ => 'P',
+        };
+
+        return $"\x1b{introducer}{token.Data}\x1b\\";
+    }
     private static string ReconstructOsc(OscToken token)
     {
         // OSC: ESC ] code ; data BEL

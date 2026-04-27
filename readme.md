@@ -21,6 +21,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - **Atomic writes** for multi-step output without tearing
   - **Markup + ANSI styling** (powered by [XenoAtom.Ansi](https://github.com/XenoAtom/XenoAtom.Ansi))
   - Custom markup tokens via `Terminal.MarkupStyles` / `Terminal.SetMarkupStyle`
+  - Graphics capability detection via `Terminal.Graphics` and optional image output through `XenoAtom.Terminal.Graphics` (Kitty, iTerm2, Sixel), including direct-output fallback text, optional cell reservation, encoded image caching, Sixel RGB332 fast palette mode, and real-time frame source notifications
 - **Input (unified events)**:
   - Single event stream for **keys**, **text**, **mouse**, **resize**, **signals**
   - Async + cancellation-friendly APIs for TUI loops

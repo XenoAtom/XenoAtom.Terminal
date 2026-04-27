@@ -20,7 +20,7 @@ public class TerminalMarkupStylesTests
     public void WriteMarkup_UsesCustomStylesFromTerminalInstance()
     {
         var backend = new InMemoryTerminalBackend();
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         Terminal.SetMarkupStyle("primary", AnsiStyle.Default with { Decorations = AnsiDecorations.Underline });
         Terminal.WriteMarkup("[primary]Hi[/]");
@@ -34,7 +34,7 @@ public class TerminalMarkupStylesTests
     public void WriteMarkup_RebuildsMarkup_WhenStylesChange()
     {
         var backend = new InMemoryTerminalBackend();
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         Terminal.SetMarkupStyle("primary", AnsiStyle.Default with { Decorations = AnsiDecorations.Underline });
         Terminal.WriteMarkup("[primary]Hi[/]");
@@ -53,7 +53,7 @@ public class TerminalMarkupStylesTests
     public void MarkupStyles_InPlaceMutation_CanBeNotified()
     {
         var backend = new InMemoryTerminalBackend();
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         var styles = new Dictionary<string, AnsiStyle>
         {
@@ -78,7 +78,7 @@ public class TerminalMarkupStylesTests
     public void CaptureOutput_UsesCustomStyles()
     {
         var backend = new InMemoryTerminalBackend();
-        Terminal.Initialize(backend);
+        Terminal.Initialize(backend, new TerminalOptions { ForceAnsi = true });
 
         Terminal.SetMarkupStyle("primary", AnsiStyle.Default with { Decorations = AnsiDecorations.Underline });
 

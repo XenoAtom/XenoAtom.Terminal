@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="XenoAtom.Terminal.Graphics/XenoAtom.Terminal.Graphics.csproj" />
   <Project Path="XenoAtom.Terminal.Tests/XenoAtom.Terminal.Tests.csproj" />
   <Project Path="XenoAtom.Terminal/XenoAtom.Terminal.csproj" />
   <Folder Name="/doc/">
