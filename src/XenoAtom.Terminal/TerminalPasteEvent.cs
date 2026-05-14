@@ -10,7 +10,7 @@ namespace XenoAtom.Terminal;
 public sealed record TerminalPasteEvent : TerminalEvent
 {
     /// <summary>
-    /// Gets the pasted text.
+    /// Gets the pasted text. Bracketed-paste line endings are normalized to line-feed characters (\n).
     /// </summary>
     public required string Text { get; init; }
 }

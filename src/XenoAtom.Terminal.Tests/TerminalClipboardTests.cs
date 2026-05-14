@@ -5,6 +5,7 @@
 using System.Text;
 using System.Runtime.Versioning;
 using XenoAtom.Terminal.Backends;
+using XenoAtom.Terminal.Internal.Unix;
 
 namespace XenoAtom.Terminal.Tests;
 
@@ -63,6 +64,35 @@ public sealed class TerminalClipboardTests
         var data = await Terminal.Clipboard.GetDataAsync(TerminalClipboardFormats.Text);
         Assert.IsNotNull(data);
         Assert.AreEqual("bonjour", Encoding.UTF8.GetString(data));
+    }
+
+    [TestMethod]
+    public void Clipboard_UnixTextLineEndings_AreNormalized()
+    {
+        Assert.AreEqual("a\nb\nc\n", UnixClipboard.NormalizeTextLineEndings("a\rb\r\nc\n"));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.OSX)]
+    [SupportedOSPlatform("macos")]
+    public void Clipboard_TextDataRoundTrip_NormalizesMacOsLineEndings()
+    {
+        var backend = CreateUnixBackend();
+        Terminal.Initialize(backend, new TerminalOptions { EnableOsc52Clipboard = false });
+
+        if (!Terminal.Clipboard.CanGetFormats || !Terminal.Clipboard.CanSetFormats)
+        {
+            Assert.Inconclusive($"Named clipboard formats are not available for backend {backend.GetType().Name} on this machine.");
+        }
+
+        if (!Terminal.Clipboard.TrySetData(TerminalClipboardFormats.Text, Encoding.UTF8.GetBytes("a\rb\r\nc\n")))
+        {
+            Assert.Inconclusive($"Text clipboard data could not be written for backend {backend.GetType().Name} on this machine.");
+        }
+
+        Assert.IsTrue(Terminal.Clipboard.TryGetData(TerminalClipboardFormats.Text, out var data));
+        Assert.AreEqual("a\nb\nc\n", Encoding.UTF8.GetString(data));
+        Assert.AreEqual("a\nb\nc\n", Terminal.Clipboard.Text);
     }
 
     [OSCondition(OperatingSystems.Windows)]
@@ -159,7 +189,7 @@ public sealed class TerminalClipboardTests
             Assert.Inconclusive($"Text clipboard is not available for backend {backend.GetType().Name} on this machine.");
         }
 
-        var marker = $"{IntegrationPrefix} text {Environment.ProcessId} {Guid.NewGuid():N}";
+        var marker = $"{IntegrationPrefix} text {Environment.ProcessId} {Guid.NewGuid():N}\nsecond line";
         if (!Terminal.Clipboard.TrySetText(marker))
         {
             Assert.Inconclusive($"Text clipboard could not be written for backend {backend.GetType().Name} on this machine.");

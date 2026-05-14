@@ -51,7 +51,7 @@ internal sealed class VtInputDecoder : IDisposable
                 if (token is CsiToken csi && IsBracketedPasteEnd(csi))
                 {
                     _isInPaste = false;
-                    events.Publish(new TerminalPasteEvent { Text = _pasteBuilder.ToString() });
+                    events.Publish(new TerminalPasteEvent { Text = NormalizePasteTextLineEndings(_pasteBuilder.ToString()) });
                     _pasteBuilder.Clear();
                     continue;
                 }
@@ -363,6 +363,36 @@ internal sealed class VtInputDecoder : IDisposable
         }
 
         return token.Parameters.Length == 1 && token.Parameters[0] == 201;
+    }
+
+    private static string NormalizePasteTextLineEndings(string text)
+    {
+        var firstCarriageReturn = text.IndexOf('\r');
+        if (firstCarriageReturn < 0)
+        {
+            return text;
+        }
+
+        var sb = new StringBuilder(text.Length);
+        sb.Append(text.AsSpan(0, firstCarriageReturn));
+
+        for (var i = firstCarriageReturn; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (ch != '\r')
+            {
+                sb.Append(ch);
+                continue;
+            }
+
+            sb.Append('\n');
+            if (i + 1 < text.Length && text[i + 1] == '\n')
+            {
+                i++;
+            }
+        }
+
+        return sb.ToString();
     }
 
     private void AppendRawToPaste(AnsiToken token)

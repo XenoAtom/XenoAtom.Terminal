@@ -130,6 +130,19 @@ public sealed class VtInputDecoderTests
     }
 
     [TestMethod]
+    public void Decode_BracketedPaste_NormalizesLineEndings()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[200~a\rb\r\nc\n\x1b[201~".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var paste = (TerminalPasteEvent)ev;
+        Assert.AreEqual("a\nb\nc\n", paste.Text);
+    }
+
+    [TestMethod]
     public void Decode_BracketedPaste_Chunked_ProducesPasteEvent()
     {
         using var decoder = new VtInputDecoder();

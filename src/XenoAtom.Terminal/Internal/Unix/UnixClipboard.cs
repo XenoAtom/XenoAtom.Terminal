@@ -115,9 +115,9 @@ internal static class UnixClipboard
 
         return provider.Kind switch
         {
-            ProviderKind.MacOsPbCopy => TryRunForText(provider.ReadExe, [], out text),
-            ProviderKind.Xsel => TryRunForText(provider.ReadExe, ["--clipboard", "--output"], out text),
-            _ => TryGetData(provider, TerminalClipboardFormats.Text, out var data) && TryDecodeUtf8(data, out text),
+            ProviderKind.MacOsPbCopy => TryRunForText(provider.ReadExe, [], out text) && NormalizeTextLineEndings(ref text),
+            ProviderKind.Xsel => TryRunForText(provider.ReadExe, ["--clipboard", "--output"], out text) && NormalizeTextLineEndings(ref text),
+            _ => TryGetData(provider, TerminalClipboardFormats.Text, out var data) && TryDecodeUtf8(data, out text) && NormalizeTextLineEndings(ref text),
         };
     }
 
@@ -175,13 +175,25 @@ internal static class UnixClipboard
 
         var normalized = TerminalClipboardFormatHelper.Normalize(format);
 
-        return provider.Kind switch
+        var result = provider.Kind switch
         {
             ProviderKind.MacOsAppKit => TryGetDataFromAppKit(provider, normalized, out data),
             ProviderKind.Wayland => TryGetDataFromCandidates(provider.ReadExe, GetUnixFormatCandidates(normalized), out data, "--type"),
             ProviderKind.Xclip => TryGetDataFromCandidates(provider.ReadExe, GetUnixFormatCandidates(normalized), out data, "-selection", "clipboard", "-t"),
             _ => false,
         };
+
+        if (!result)
+        {
+            return false;
+        }
+
+        if (string.Equals(normalized, TerminalClipboardFormats.Text, StringComparison.Ordinal))
+        {
+            data = NormalizeUtf8TextData(data);
+        }
+
+        return data is not null;
     }
 
     public static bool TrySetData(in Provider provider, string format, ReadOnlySpan<byte> data)
@@ -399,6 +411,59 @@ internal static class UnixClipboard
         }
 
         text = Encoding.UTF8.GetString(data);
+        return true;
+    }
+
+    internal static string NormalizeTextLineEndings(string text)
+    {
+        var firstCarriageReturn = text.IndexOf('\r');
+        if (firstCarriageReturn < 0)
+        {
+            return text;
+        }
+
+        var sb = new StringBuilder(text.Length);
+        sb.Append(text.AsSpan(0, firstCarriageReturn));
+
+        for (var i = firstCarriageReturn; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (ch != '\r')
+            {
+                sb.Append(ch);
+                continue;
+            }
+
+            sb.Append('\n');
+            if (i + 1 < text.Length && text[i + 1] == '\n')
+            {
+                i++;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static byte[]? NormalizeUtf8TextData(byte[]? data)
+    {
+        if (data is null)
+        {
+            return null;
+        }
+
+        var text = Encoding.UTF8.GetString(data);
+        var normalized = NormalizeTextLineEndings(text);
+        return ReferenceEquals(normalized, text) ? data : Encoding.UTF8.GetBytes(normalized);
+    }
+
+    private static bool NormalizeTextLineEndings([NotNullWhen(true)] ref string? text)
+    {
+        if (text is null)
+        {
+            return false;
+        }
+
+        text = NormalizeTextLineEndings(text);
         return true;
     }
 
