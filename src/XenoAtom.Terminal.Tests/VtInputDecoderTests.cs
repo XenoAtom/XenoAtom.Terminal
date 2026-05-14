@@ -23,6 +23,69 @@ public sealed class VtInputDecoderTests
     }
 
     [TestMethod]
+    [DataRow("\x1b[1;5P", TerminalKey.F1)]
+    [DataRow("\x1b[1;5Q", TerminalKey.F2)]
+    [DataRow("\x1b[1;5R", TerminalKey.F3)]
+    [DataRow("\x1b[1;5S", TerminalKey.F4)]
+    [DataRow("\x1b[15;5~", TerminalKey.F5)]
+    [DataRow("\x1b[17;5~", TerminalKey.F6)]
+    [DataRow("\x1b[18;5~", TerminalKey.F7)]
+    [DataRow("\x1b[19;5~", TerminalKey.F8)]
+    [DataRow("\x1b[20;5~", TerminalKey.F9)]
+    [DataRow("\x1b[21;5~", TerminalKey.F10)]
+    [DataRow("\x1b[23;5~", TerminalKey.F11)]
+    [DataRow("\x1b[24;5~", TerminalKey.F12)]
+    public void Decode_CtrlFunctionKey_ProducesKeyEvent(string sequence, TerminalKey expectedKey)
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode(sequence.AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var key = (TerminalKeyEvent)ev;
+        Assert.AreEqual(expectedKey, key.Key);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void Decode_CsiR_IsKeyEvent_WhenCursorPositionReportIsNotExpected()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+        var reportReceived = false;
+
+        decoder.Decode("\x1b[1;5R".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster, _ =>
+        {
+            reportReceived = true;
+            return false;
+        });
+
+        Assert.IsTrue(reportReceived);
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var key = (TerminalKeyEvent)ev;
+        Assert.AreEqual(TerminalKey.F3, key.Key);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void Decode_CsiR_IsConsumed_WhenCursorPositionReportIsExpected()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+        var reportReceived = false;
+
+        decoder.Decode("\x1b[1;5R".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster, _ =>
+        {
+            reportReceived = true;
+            return true;
+        });
+
+        Assert.IsTrue(reportReceived);
+        Assert.IsFalse(broadcaster.TryReadEvent(out _));
+    }
+
+    [TestMethod]
     public void Decode_EscapeKey_RequiresFinalFlushInStreamingMode()
     {
         using var decoder = new VtInputDecoder();

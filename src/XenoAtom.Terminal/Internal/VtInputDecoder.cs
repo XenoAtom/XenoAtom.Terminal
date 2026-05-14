@@ -22,7 +22,7 @@ internal sealed class VtInputDecoder : IDisposable
         _pasteBuilder = new StringBuilder(256);
     }
 
-    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Action<AnsiCursorPosition>? cursorPositionReport = null, TerminalGraphicsProbeCoordinator? graphicsProbeCoordinator = null)
+    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Func<AnsiCursorPosition, bool>? cursorPositionReport = null, TerminalGraphicsProbeCoordinator? graphicsProbeCoordinator = null)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -39,9 +39,10 @@ internal sealed class VtInputDecoder : IDisposable
                 continue;
             }
 
-            if (token is CsiToken csiReport && csiReport.TryGetCursorPositionReport(out var cursorPosition))
+            if (token is CsiToken csiReport
+                && csiReport.TryGetCursorPositionReport(out var cursorPosition)
+                && cursorPositionReport?.Invoke(cursorPosition) == true)
             {
-                cursorPositionReport?.Invoke(cursorPosition);
                 continue;
             }
 
@@ -69,6 +70,12 @@ internal sealed class VtInputDecoder : IDisposable
             if (mouseEnabled && token is CsiToken csiMouse && csiMouse.TryGetSgrMouseEvent(out var mouseEvent))
             {
                 events.Publish(MapMouse(mouseEvent));
+                continue;
+            }
+
+            if (token is CsiToken csiFunctionKey && TryMapModifiedFunctionKey(csiFunctionKey, out var functionKey))
+            {
+                PublishKey(functionKey, events);
                 continue;
             }
 
@@ -235,6 +242,54 @@ internal sealed class VtInputDecoder : IDisposable
             Char = ch,
             Modifiers = mods,
         };
+    }
+
+    private static bool TryMapModifiedFunctionKey(CsiToken token, out TerminalKeyEvent ev)
+    {
+        ev = null!;
+
+        if (token.PrivateMarker is not null || token.Intermediates.Length != 0 || token.Parameters.Length != 2 || token.Parameters[0] != 1)
+        {
+            return false;
+        }
+
+        var key = token.Final switch
+        {
+            'P' => TerminalKey.F1,
+            'Q' => TerminalKey.F2,
+            'R' => TerminalKey.F3,
+            'S' => TerminalKey.F4,
+            _ => TerminalKey.Unknown,
+        };
+
+        if (key == TerminalKey.Unknown || !TryMapXtermModifierParameter(token.Parameters[1], out var modifiers))
+        {
+            return false;
+        }
+
+        ev = new TerminalKeyEvent
+        {
+            Key = key,
+            Modifiers = modifiers,
+        };
+        return true;
+    }
+
+    private static bool TryMapXtermModifierParameter(int modifierParameter, out TerminalModifiers modifiers)
+    {
+        modifiers = TerminalModifiers.None;
+
+        // Xterm-style CSI key modifier parameter: 1 + Shift(1) + Alt(2) + Ctrl(4).
+        if (modifierParameter is < 2 or > 8)
+        {
+            return false;
+        }
+
+        var bits = modifierParameter - 1;
+        if ((bits & 1) != 0) modifiers |= TerminalModifiers.Shift;
+        if ((bits & 2) != 0) modifiers |= TerminalModifiers.Alt;
+        if ((bits & 4) != 0) modifiers |= TerminalModifiers.Ctrl;
+        return true;
     }
 
     private static TerminalModifiers MapModifiers(AnsiKeyModifiers modifiers)

@@ -24,7 +24,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
     private readonly TerminalGraphicsProbeCoordinator _graphicsProbeCoordinator = new();
     private readonly Lock _cursorPositionLock = new();
 
-    private readonly Action<AnsiCursorPosition> _cursorPositionReportHandler;
+    private readonly Func<AnsiCursorPosition, bool> _cursorPositionReportHandler;
     private TaskCompletionSource<TerminalPosition>? _cursorPositionRequest;
 
     private TerminalOptions? _options;
@@ -281,7 +281,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
         return TryQueryCursorPositionDirect(out var position) ? position : null;
     }
 
-    private void OnCursorPositionReport(AnsiCursorPosition position)
+    private bool OnCursorPositionReport(AnsiCursorPosition position)
     {
         TaskCompletionSource<TerminalPosition>? request = null;
         lock (_cursorPositionLock)
@@ -292,11 +292,12 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
 
         if (request is null)
         {
-            return;
+            return false;
         }
 
         // CPR is 1-based.
         request.TrySetResult(new TerminalPosition(position.Column - 1, position.Row - 1));
+        return true;
     }
 
     private bool TryRequestCursorPositionFromInputLoop(out TerminalPosition position)
