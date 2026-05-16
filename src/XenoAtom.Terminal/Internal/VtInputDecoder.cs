@@ -345,7 +345,12 @@ internal sealed class VtInputDecoder : IDisposable
         }
 
         var key = MapKittyKeyCode(keyCode);
-        var ch = GetKittyKeyChar(keyCode, key, text);
+        var ch = GetKittyKeyChar(keyCode, key, modifiers, text);
+        if (text is null && ch is { } charValue && !char.IsControl(charValue) &&
+            (modifiers & ~TerminalModifiers.Shift) == TerminalModifiers.None)
+        {
+            text = charValue.ToString();
+        }
 
         ev = new TerminalKeyEvent
         {
@@ -353,7 +358,7 @@ internal sealed class VtInputDecoder : IDisposable
             Char = ch,
             Modifiers = modifiers,
         };
-        isCtrlC = keyCode is 99 or 67 && modifiers.HasFlag(TerminalModifiers.Ctrl);
+        isCtrlC = ch == TerminalChar.CtrlC && modifiers.HasFlag(TerminalModifiers.Ctrl);
         return true;
     }
 
@@ -397,11 +402,21 @@ internal sealed class VtInputDecoder : IDisposable
 
     private static bool IsKittyStandaloneModifierKeyCode(int keyCode) => keyCode is >= 57441 and <= 57454;
 
-    private static char? GetKittyKeyChar(int keyCode, TerminalKey key, string? text)
+    private static char? GetKittyKeyChar(int keyCode, TerminalKey key, TerminalModifiers modifiers, string? text)
     {
         if (text is { Length: 1 } && !char.IsSurrogate(text[0]))
         {
             return text[0];
+        }
+
+        if (modifiers.HasFlag(TerminalModifiers.Ctrl) && TryGetKittyControlChar(keyCode, out var controlChar))
+        {
+            return controlChar;
+        }
+
+        if (key == TerminalKey.Unknown && TryGetKittyUnicodeChar(keyCode, out var unicodeChar))
+        {
+            return unicodeChar;
         }
 
         return key switch
@@ -413,6 +428,72 @@ internal sealed class VtInputDecoder : IDisposable
             TerminalKey.Space => ' ',
             _ => null,
         };
+    }
+
+    private static bool TryGetKittyControlChar(int keyCode, out char controlChar)
+    {
+        controlChar = '\0';
+
+        if (keyCode is >= 'a' and <= 'z')
+        {
+            controlChar = TerminalChar.Ctrl((char)keyCode);
+            return true;
+        }
+
+        if (keyCode is >= 'A' and <= 'Z')
+        {
+            controlChar = TerminalChar.Ctrl((char)keyCode);
+            return true;
+        }
+
+        switch (keyCode)
+        {
+            case ' ':
+            case '@':
+                controlChar = '\0';
+                return true;
+            case '[':
+                controlChar = '\x1b';
+                return true;
+            case '\\':
+                controlChar = '\x1c';
+                return true;
+            case ']':
+                controlChar = '\x1d';
+                return true;
+            case '^':
+            case '~':
+                controlChar = '\x1e';
+                return true;
+            case '_':
+            case '/':
+                controlChar = '\x1f';
+                return true;
+            case '?':
+                controlChar = '\x7f';
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryGetKittyUnicodeChar(int keyCode, out char unicodeChar)
+    {
+        unicodeChar = '\0';
+
+        if (keyCode is < 0 or > char.MaxValue)
+        {
+            return false;
+        }
+
+        unicodeChar = (char)keyCode;
+        if (char.IsControl(unicodeChar) || char.IsSurrogate(unicodeChar) || unicodeChar is >= '\uE000' and <= '\uF8FF')
+        {
+            unicodeChar = '\0';
+            return false;
+        }
+
+        return true;
     }
 
     private static string DecodeCodepoints(ReadOnlySpan<int> codepoints)

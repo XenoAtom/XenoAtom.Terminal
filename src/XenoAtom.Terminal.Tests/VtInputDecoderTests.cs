@@ -229,8 +229,41 @@ public sealed class VtInputDecoderTests
         Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
         var key = (TerminalKeyEvent)ev;
         Assert.AreEqual(TerminalKey.Unknown, key.Key);
-        Assert.IsNull(key.Char);
+        Assert.AreEqual(TerminalChar.CtrlI, key.Char);
         Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void Decode_KittyCtrlA_MapsControlCharacter()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[97;5u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var key = (TerminalKeyEvent)ev;
+        Assert.AreEqual(TerminalKey.Unknown, key.Key);
+        Assert.AreEqual(TerminalChar.CtrlA, key.Char);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void Decode_KittyRegularKey_MapsUnicodeCharacter()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[97u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var key = (TerminalKeyEvent)ev;
+        Assert.AreEqual(TerminalKey.Unknown, key.Key);
+        Assert.AreEqual('a', key.Char);
+        Assert.AreEqual(TerminalModifiers.None, key.Modifiers);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var textEvent));
+        Assert.AreEqual("a", ((TerminalTextEvent)textEvent).Text);
     }
 
     [TestMethod]
@@ -267,6 +300,7 @@ public sealed class VtInputDecoderTests
         Assert.IsTrue(broadcaster.TryReadEvent(out var second));
         var key = (TerminalKeyEvent)second;
         Assert.AreEqual(TerminalKey.Unknown, key.Key);
+        Assert.AreEqual(TerminalChar.CtrlC, key.Char);
         Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
     }
 

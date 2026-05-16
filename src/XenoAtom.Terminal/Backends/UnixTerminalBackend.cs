@@ -1212,8 +1212,9 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
 
         try
         {
-            // Request disambiguation, all keys as CSI u, and associated text so regular text input is preserved.
-            Out.Write("\x1b[>25u");
+            // Request only disambiguation. This keeps ordinary text as UTF-8 while allowing
+            // modified keys such as Shift+Enter and Ctrl+letter to arrive as CSI u.
+            Out.Write("\x1b[>1u");
             Out.Flush();
             _kittyKeyboardEnabled = true;
             _kittyKeyboardSupported = true;
