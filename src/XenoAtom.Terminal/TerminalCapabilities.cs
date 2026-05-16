@@ -59,6 +59,20 @@ public sealed class TerminalCapabilities
     public bool SupportsRawMode { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether extended keyboard input can report disambiguated keys and modifiers such as Shift+Enter.
+    /// </summary>
+    /// <remarks>
+    /// Native Windows console input reports this at initialization time. ANSI/VT terminals that use the Kitty keyboard protocol
+    /// require a runtime probe, so this property becomes <see langword="true"/> after input starts and the probe succeeds.
+    /// </remarks>
+    public bool SupportsExtendedKeys { get; init; }
+
+    /// <summary>
+    /// Gets the protocol used for extended keyboard input, if any.
+    /// </summary>
+    public TerminalExtendedKeyProtocol ExtendedKeyProtocol { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether cursor position can be retrieved.
     /// </summary>
     public bool SupportsCursorPositionGet { get; init; }

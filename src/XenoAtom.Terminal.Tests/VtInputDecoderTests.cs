@@ -201,4 +201,87 @@ public sealed class VtInputDecoderTests
         Assert.IsInstanceOfType(second, typeof(TerminalKeyEvent));
         Assert.AreEqual(TerminalChar.CtrlC, ((TerminalKeyEvent)second).Char);
     }
+
+    [TestMethod]
+    public void Decode_KittyShiftEnter_ProducesShiftEnterKeyEvent()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[13;2u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var key = (TerminalKeyEvent)ev;
+        Assert.AreEqual(TerminalKey.Enter, key.Key);
+        Assert.AreEqual('\r', key.Char);
+        Assert.AreEqual(TerminalModifiers.Shift, key.Modifiers);
+        Assert.IsFalse(broadcaster.TryReadEvent(out _));
+    }
+
+    [TestMethod]
+    public void Decode_KittyCtrlI_DistinguishesFromTab()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[105;5u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var ev));
+        var key = (TerminalKeyEvent)ev;
+        Assert.AreEqual(TerminalKey.Unknown, key.Key);
+        Assert.IsNull(key.Char);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void Decode_KittyAssociatedText_ProducesKeyAndTextEvents()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[97;2;65u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var first));
+        var key = (TerminalKeyEvent)first;
+        Assert.AreEqual(TerminalKey.Unknown, key.Key);
+        Assert.AreEqual('A', key.Char);
+        Assert.AreEqual(TerminalModifiers.Shift, key.Modifiers);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var second));
+        var text = (TerminalTextEvent)second;
+        Assert.AreEqual("A", text.Text);
+    }
+
+    [TestMethod]
+    public void Decode_KittyCtrlC_PublishesSignal_WhenCaptureEnabled()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+
+        decoder.Decode("\x1b[99;5u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions { CaptureCtrlC = true, TreatControlCAsInput = false }, broadcaster);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var first));
+        Assert.IsInstanceOfType(first, typeof(TerminalSignalEvent));
+        Assert.AreEqual(TerminalSignalKind.Interrupt, ((TerminalSignalEvent)first).Kind);
+
+        Assert.IsTrue(broadcaster.TryReadEvent(out var second));
+        var key = (TerminalKeyEvent)second;
+        Assert.AreEqual(TerminalKey.Unknown, key.Key);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void Decode_KittyQueryReply_IsConsumedByKeyboardProbeCoordinator()
+    {
+        using var decoder = new VtInputDecoder();
+        using var broadcaster = new TerminalEventBroadcaster();
+        var keyboardProbeCoordinator = new TerminalKeyboardProbeCoordinator();
+
+        keyboardProbeCoordinator.BeginKittyKeyboardQuery();
+        decoder.Decode("\x1b[?25u".AsSpan(), isFinalChunk: true, options: new TerminalInputOptions(), broadcaster, keyboardProbeCoordinator: keyboardProbeCoordinator);
+
+        Assert.IsTrue(keyboardProbeCoordinator.TryGetKittyKeyboardQueryResult(out var flags));
+        Assert.AreEqual(25, flags);
+        Assert.IsFalse(broadcaster.TryReadEvent(out _));
+    }
 }

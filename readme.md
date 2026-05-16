@@ -24,6 +24,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
   - Graphics capability detection via `Terminal.Graphics` and optional image output through `XenoAtom.Terminal.Graphics` (Kitty, iTerm2, Sixel), including direct-output fallback text, optional cell reservation, encoded image caching, Sixel RGB332 fast palette mode, and real-time frame source notifications
 - **Input (unified events)**:
   - Single event stream for **keys**, **text**, **mouse**, **resize**, **signals**
+  - Extended key modifiers through native Windows console input or probed Kitty keyboard protocol (`Terminal.Capabilities.SupportsExtendedKeys` / `ExtendedKeyProtocol`)
   - Async + cancellation-friendly APIs for TUI loops
 - **Interactive ReadLine editor**:
   - Cursor movement, mid-line insert/delete, word navigation/delete

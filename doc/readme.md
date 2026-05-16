@@ -392,6 +392,8 @@ XenoAtom.Terminal uses a single unified event stream for input. This is the pref
 On Windows, some hosts can deliver input as ANSI/VT sequences when the console input mode enables `ENABLE_VIRTUAL_TERMINAL_INPUT`.
 Terminal will only use the VT decoder when that flag is enabled (or if you request enabling it via `TerminalOptions.WindowsVtInputDecoder`).
 
+Extended key modifiers are supported in two ways. Native Windows console input reports modifier state directly, so `TerminalKeyEvent.Modifiers` can include Shift even for text-producing keys. On ANSI/VT Unix terminals, the input loop probes for the Kitty keyboard protocol (`CSI ? u` plus a device-attributes sentinel); when supported it pushes Kitty keyboard mode with disambiguated/all-key CSI-u reporting and pops it on input shutdown. Check `Terminal.Capabilities.SupportsExtendedKeys` and `Terminal.Capabilities.ExtendedKeyProtocol` after input has started to see whether extended keys are active (`WindowsConsole` or `KittyKeyboard`).
+
 ```csharp
 // Resize events are published automatically when supported.
 // Mouse and bracketed paste are opt-in because enabling them can change terminal behavior (selection/paste semantics).

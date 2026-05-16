@@ -22,6 +22,7 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
     private readonly Lock _termiosLock = new();
     private readonly TerminalEventBroadcaster _events = new();
     private readonly TerminalGraphicsProbeCoordinator _graphicsProbeCoordinator = new();
+    private readonly TerminalKeyboardProbeCoordinator _keyboardProbeCoordinator = new();
     private readonly Lock _cursorPositionLock = new();
 
     private readonly Func<AnsiCursorPosition, bool> _cursorPositionReportHandler;
@@ -50,6 +51,9 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
 
     private bool _bracketedPasteEnabled;
     private int _bracketedPasteRefCount;
+
+    private bool? _kittyKeyboardSupported;
+    private bool _kittyKeyboardEnabled;
 
     private string _title = string.Empty;
 
@@ -1126,57 +1130,196 @@ internal sealed class UnixTerminalBackend : ITerminalBackend, ITerminalGraphicsP
 
         var pollFd = new LibC.PollFd { fd = LibC.STDIN_FILENO, events = LibC.POLLIN, revents = 0 };
 
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            PublishResizeIfChanged();
+            TryEnableKittyKeyboard(decoder, bytes, chars, cancellationToken);
 
-            var pollResult = LibC.poll(&pollFd, 1, 50);
-            if (pollResult == 0)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                // Flush pending partial sequences (notably ESC-as-a-key) after an idle period.
-                decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator);
-                continue;
-            }
+                PublishResizeIfChanged();
 
-            if (pollResult < 0)
-            {
-                Thread.Sleep(1);
-                continue;
-            }
-
-            if ((pollFd.revents & LibC.POLLIN) == 0)
-            {
-                continue;
-            }
-
-            fixed (byte* buffer = bytes)
-            {
-                var read = LibC.read(LibC.STDIN_FILENO, buffer, (nuint)bytes.Length);
-                if (read <= 0)
+                var pollResult = LibC.poll(&pollFd, 1, 50);
+                if (pollResult == 0)
                 {
-                    break;
+                    // Flush pending partial sequences (notably ESC-as-a-key) after an idle period.
+                    decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator, _keyboardProbeCoordinator);
+                    continue;
                 }
 
-                var byteCount = (int)read;
-                var byteOffset = 0;
-                while (byteOffset < byteCount)
+                if (pollResult < 0)
                 {
-                    utf8Decoder.Convert(bytes, byteOffset, byteCount - byteOffset, chars, 0, chars.Length, flush: false, out var bytesUsed, out var charsUsed, out _);
-                    if (charsUsed > 0)
-                    {
-                        decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator);
-                    }
+                    Thread.Sleep(1);
+                    continue;
+                }
 
-                    if (bytesUsed <= 0)
+                if ((pollFd.revents & LibC.POLLIN) == 0)
+                {
+                    continue;
+                }
+
+                fixed (byte* buffer = bytes)
+                {
+                    var read = LibC.read(LibC.STDIN_FILENO, buffer, (nuint)bytes.Length);
+                    if (read <= 0)
                     {
                         break;
                     }
-                    byteOffset += bytesUsed;
+
+                    var byteCount = (int)read;
+                    var byteOffset = 0;
+                    while (byteOffset < byteCount)
+                    {
+                        utf8Decoder.Convert(bytes, byteOffset, byteCount - byteOffset, chars, 0, chars.Length, flush: false, out var bytesUsed, out var charsUsed, out _);
+                        if (charsUsed > 0)
+                        {
+                            decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator, _keyboardProbeCoordinator);
+                        }
+
+                        if (bytesUsed <= 0)
+                        {
+                            break;
+                        }
+                        byteOffset += bytesUsed;
+                    }
                 }
             }
         }
+        finally
+        {
+            DisableKittyKeyboard();
+        }
 
-        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator);
+        decoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator, _keyboardProbeCoordinator);
+    }
+
+    private unsafe void TryEnableKittyKeyboard(VtInputDecoder decoder, byte[] bytes, char[] chars, CancellationToken cancellationToken)
+    {
+        if (_kittyKeyboardEnabled || !Capabilities.AnsiEnabled || Capabilities.IsInputRedirected || Capabilities.IsOutputRedirected)
+        {
+            return;
+        }
+
+        if (_kittyKeyboardSupported == false)
+        {
+            return;
+        }
+
+        if (_kittyKeyboardSupported != true && !TryProbeKittyKeyboard(decoder, bytes, chars, cancellationToken))
+        {
+            _kittyKeyboardSupported = false;
+            return;
+        }
+
+        try
+        {
+            // Request disambiguation, all keys as CSI u, and associated text so regular text input is preserved.
+            Out.Write("\x1b[>25u");
+            Out.Flush();
+            _kittyKeyboardEnabled = true;
+            _kittyKeyboardSupported = true;
+            Capabilities = Capabilities.WithExtendedKeys(true, TerminalExtendedKeyProtocol.KittyKeyboard);
+        }
+        catch
+        {
+            _kittyKeyboardEnabled = false;
+        }
+    }
+
+    private unsafe bool TryProbeKittyKeyboard(VtInputDecoder decoder, byte[] bytes, char[] chars, CancellationToken cancellationToken)
+    {
+        _keyboardProbeCoordinator.BeginKittyKeyboardQuery();
+        try
+        {
+            Out.Write("\x1b[?u\x1b[c");
+            Out.Flush();
+        }
+        catch
+        {
+            _keyboardProbeCoordinator.EndKittyKeyboardQuery();
+            return false;
+        }
+
+        var pollFd = new LibC.PollFd { fd = LibC.STDIN_FILENO, events = LibC.POLLIN, revents = 0 };
+        var utf8Decoder = Encoding.UTF8.GetDecoder();
+        var deadline = Environment.TickCount64 + 250;
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && Environment.TickCount64 < deadline)
+            {
+                var pollResult = LibC.poll(&pollFd, 1, 25);
+                if (pollResult < 0)
+                {
+                    Thread.Sleep(1);
+                    continue;
+                }
+
+                if (pollResult > 0 && (pollFd.revents & LibC.POLLIN) != 0)
+                {
+                    fixed (byte* buffer = bytes)
+                    {
+                        var read = LibC.read(LibC.STDIN_FILENO, buffer, (nuint)bytes.Length);
+                        if (read <= 0)
+                        {
+                            return false;
+                        }
+
+                        var byteCount = (int)read;
+                        var byteOffset = 0;
+                        while (byteOffset < byteCount)
+                        {
+                            utf8Decoder.Convert(bytes, byteOffset, byteCount - byteOffset, chars, 0, chars.Length, flush: false, out var bytesUsed, out var charsUsed, out _);
+                            if (charsUsed > 0)
+                            {
+                                decoder.Decode(chars.AsSpan(0, charsUsed), isFinalChunk: false, _inputOptions, _events, _cursorPositionReportHandler, _graphicsProbeCoordinator, _keyboardProbeCoordinator);
+                            }
+
+                            if (_keyboardProbeCoordinator.TryGetKittyKeyboardQueryResult(out var flags))
+                            {
+                                return flags.HasValue;
+                            }
+
+                            if (bytesUsed <= 0)
+                            {
+                                break;
+                            }
+
+                            byteOffset += bytesUsed;
+                        }
+                    }
+                }
+
+                if (_keyboardProbeCoordinator.TryGetKittyKeyboardQueryResult(out var result))
+                {
+                    return result.HasValue;
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            _keyboardProbeCoordinator.EndKittyKeyboardQuery();
+        }
+    }
+
+    private void DisableKittyKeyboard()
+    {
+        if (!_kittyKeyboardEnabled)
+        {
+            return;
+        }
+
+        _kittyKeyboardEnabled = false;
+        try
+        {
+            Out.Write("\x1b[<1u");
+            Out.Flush();
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
     }
 
     private void PublishResizeIfChanged()

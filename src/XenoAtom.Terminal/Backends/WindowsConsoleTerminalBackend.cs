@@ -165,6 +165,8 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
             SupportsBracketedPaste = ansiEnabled && _useVtInputDecoder && !isOutputRedirected && !isInputRedirected,
             SupportsPrivateModes = ansiEnabled && !isOutputRedirected,
             SupportsRawMode = !isInputRedirected,
+            SupportsExtendedKeys = !isInputRedirected && !IsInvalidHandle(_inputHandle),
+            ExtendedKeyProtocol = !isInputRedirected && !IsInvalidHandle(_inputHandle) ? TerminalExtendedKeyProtocol.WindowsConsole : TerminalExtendedKeyProtocol.None,
             SupportsCursorPositionGet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
             SupportsCursorPositionSet = !isOutputRedirected && !IsInvalidHandle(_outputHandle),
             SupportsClipboardGet = true,
@@ -1726,7 +1728,6 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
         var terminalKey = MapKey(key.wVirtualKeyCode);
 
         char? ch = key.UnicodeChar == '\0' ? null : key.UnicodeChar;
-        modifiers = TerminalKeyModifierNormalization.NormalizeModifiersForPortableTextKeys(terminalKey, ch, modifiers);
         var repeat = Math.Max(1, (int)key.wRepeatCount);
         var vkIndex = key.wVirtualKeyCode & 0xFF;
 

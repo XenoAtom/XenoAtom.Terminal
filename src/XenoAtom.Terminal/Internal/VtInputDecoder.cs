@@ -22,7 +22,7 @@ internal sealed class VtInputDecoder : IDisposable
         _pasteBuilder = new StringBuilder(256);
     }
 
-    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Func<AnsiCursorPosition, bool>? cursorPositionReport = null, TerminalGraphicsProbeCoordinator? graphicsProbeCoordinator = null)
+    public void Decode(ReadOnlySpan<char> chunk, bool isFinalChunk, TerminalInputOptions? options, TerminalEventBroadcaster events, Func<AnsiCursorPosition, bool>? cursorPositionReport = null, TerminalGraphicsProbeCoordinator? graphicsProbeCoordinator = null, TerminalKeyboardProbeCoordinator? keyboardProbeCoordinator = null)
     {
         ArgumentNullException.ThrowIfNull(events);
 
@@ -35,6 +35,11 @@ internal sealed class VtInputDecoder : IDisposable
         foreach (var token in _tokens)
         {
             if (graphicsProbeCoordinator?.TryConsume(token) == true)
+            {
+                continue;
+            }
+
+            if (token is CsiToken csiKeyboardProbe && keyboardProbeCoordinator?.TryConsume(csiKeyboardProbe) == true)
             {
                 continue;
             }
@@ -70,6 +75,22 @@ internal sealed class VtInputDecoder : IDisposable
             if (mouseEnabled && token is CsiToken csiMouse && csiMouse.TryGetSgrMouseEvent(out var mouseEvent))
             {
                 events.Publish(MapMouse(mouseEvent));
+                continue;
+            }
+
+            if (token is CsiToken csiKittyKeyboard && TryMapKittyKeyboardKey(csiKittyKeyboard, out var kittyKey, out var kittyText, out var isKittyCtrlC))
+            {
+                if (captureCtrlC && isKittyCtrlC)
+                {
+                    events.Publish(new TerminalSignalEvent { Kind = TerminalSignalKind.Interrupt });
+                }
+
+                PublishKey(kittyKey, events);
+                if (!string.IsNullOrEmpty(kittyText) && HasPrintable(kittyText))
+                {
+                    events.Publish(new TerminalTextEvent { Text = kittyText });
+                }
+
                 continue;
             }
 
@@ -292,6 +313,124 @@ internal sealed class VtInputDecoder : IDisposable
         return true;
     }
 
+    private static bool TryMapKittyKeyboardKey(CsiToken token, out TerminalKeyEvent ev, out string? text, out bool isCtrlC)
+    {
+        ev = null!;
+        text = null;
+        isCtrlC = false;
+
+        if (token.Final != 'u' || token.PrivateMarker is not null || token.Intermediates.Length != 0 || token.Parameters.Length == 0)
+        {
+            return false;
+        }
+
+        var keyCode = token.Parameters[0];
+        if (keyCode <= 0 || IsKittyStandaloneModifierKeyCode(keyCode))
+        {
+            return false;
+        }
+
+        var modifiers = TerminalModifiers.None;
+        if (token.Parameters.Length >= 2)
+        {
+            if (!TryMapKittyModifierParameter(token.Parameters[1], out modifiers))
+            {
+                return false;
+            }
+        }
+
+        if (token.Parameters.Length >= 3)
+        {
+            text = DecodeCodepoints(token.Parameters.AsSpan(2));
+        }
+
+        var key = MapKittyKeyCode(keyCode);
+        var ch = GetKittyKeyChar(keyCode, key, text);
+
+        ev = new TerminalKeyEvent
+        {
+            Key = key,
+            Char = ch,
+            Modifiers = modifiers,
+        };
+        isCtrlC = keyCode is 99 or 67 && modifiers.HasFlag(TerminalModifiers.Ctrl);
+        return true;
+    }
+
+    private static bool TryMapKittyModifierParameter(int modifierParameter, out TerminalModifiers modifiers)
+    {
+        modifiers = TerminalModifiers.None;
+
+        if (modifierParameter < 1)
+        {
+            return false;
+        }
+
+        var bits = modifierParameter - 1;
+        if ((bits & 1) != 0) modifiers |= TerminalModifiers.Shift;
+        if ((bits & 2) != 0) modifiers |= TerminalModifiers.Alt;
+        if ((bits & 4) != 0) modifiers |= TerminalModifiers.Ctrl;
+        if ((bits & (8 | 16 | 32)) != 0) modifiers |= TerminalModifiers.Meta;
+        return true;
+    }
+
+    private static TerminalKey MapKittyKeyCode(int keyCode) => keyCode switch
+    {
+        13 or 10 => TerminalKey.Enter,
+        27 => TerminalKey.Escape,
+        8 or 127 => TerminalKey.Backspace,
+        9 => TerminalKey.Tab,
+        32 => TerminalKey.Space,
+        57414 => TerminalKey.Enter,
+        57417 => TerminalKey.Left,
+        57418 => TerminalKey.Right,
+        57419 => TerminalKey.Up,
+        57420 => TerminalKey.Down,
+        57421 => TerminalKey.PageUp,
+        57422 => TerminalKey.PageDown,
+        57423 => TerminalKey.Home,
+        57424 => TerminalKey.End,
+        57425 => TerminalKey.Insert,
+        57426 => TerminalKey.Delete,
+        _ => TerminalKey.Unknown,
+    };
+
+    private static bool IsKittyStandaloneModifierKeyCode(int keyCode) => keyCode is >= 57441 and <= 57454;
+
+    private static char? GetKittyKeyChar(int keyCode, TerminalKey key, string? text)
+    {
+        if (text is { Length: 1 } && !char.IsSurrogate(text[0]))
+        {
+            return text[0];
+        }
+
+        return key switch
+        {
+            TerminalKey.Enter => keyCode == 10 ? '\n' : '\r',
+            TerminalKey.Escape => '\x1b',
+            TerminalKey.Backspace => '\b',
+            TerminalKey.Tab => '\t',
+            TerminalKey.Space => ' ',
+            _ => null,
+        };
+    }
+
+    private static string DecodeCodepoints(ReadOnlySpan<int> codepoints)
+    {
+        var builder = new StringBuilder(codepoints.Length);
+        foreach (var codepoint in codepoints)
+        {
+            if (codepoint is <= 0 or > 0x10FFFF or >= 0xD800 and <= 0xDFFF)
+            {
+                continue;
+            }
+
+            builder.Append(char.ConvertFromUtf32(codepoint));
+        }
+
+        return builder.ToString();
+    }
+
     private static TerminalModifiers MapModifiers(AnsiKeyModifiers modifiers)
     {
         TerminalModifiers result = TerminalModifiers.None;
@@ -324,20 +463,23 @@ internal sealed class VtInputDecoder : IDisposable
             }, events);
         }
 
-        var hasPrintable = false;
+        if (HasPrintable(text))
+        {
+            events.Publish(new TerminalTextEvent { Text = text });
+        }
+    }
+
+    private static bool HasPrintable(string text)
+    {
         foreach (var ch in text)
         {
             if (!char.IsControl(ch))
             {
-                hasPrintable = true;
-                break;
+                return true;
             }
         }
 
-        if (hasPrintable)
-        {
-            events.Publish(new TerminalTextEvent { Text = text });
-        }
+        return false;
     }
 
     private void PublishKey(TerminalKeyEvent key, TerminalEventBroadcaster events)
