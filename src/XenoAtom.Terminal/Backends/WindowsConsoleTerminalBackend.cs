@@ -20,6 +20,7 @@ namespace XenoAtom.Terminal.Backends;
 internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBackend
 {
     private readonly Lock _inputLock = new();
+    private readonly WindowsConsoleModeState _consoleModeState = new();
     private readonly TerminalEventBroadcaster _events = new();
     private readonly TerminalGraphicsProbeCoordinator _graphicsProbeCoordinator = new();
     private readonly bool[] _keyDown = new bool[256];
@@ -37,9 +38,6 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
     private bool _useVtInputDecoder;
     private readonly int[] _vtMouseModeCounts = new int[4];
     private TerminalMouseMode _vtMouseMode;
-
-    private uint _savedInputMode;
-    private bool _hasSavedInputMode;
 
     private uint _lastButtonState;
 
@@ -191,30 +189,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
     }
 
     private bool TryEnableVirtualTerminalInput()
-    {
-        if (IsInvalidHandle(_inputHandle))
-        {
-            return false;
-        }
-
-        if (!Win32Console.GetConsoleMode(_inputHandle, out var mode))
-        {
-            return false;
-        }
-
-        if ((mode & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
-        {
-            return true;
-        }
-
-        var desired = mode | Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT;
-        if (!Win32Console.SetConsoleMode(_inputHandle, desired))
-        {
-            return false;
-        }
-
-        return Win32Console.GetConsoleMode(_inputHandle, out var after) && (after & Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT) != 0;
-    }
+        => _consoleModeState.TryEnableVirtualTerminalInput(_inputHandle);
 
     private static string DetectTerminalName()
     {
@@ -1537,7 +1512,6 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
     {
         Task? task;
         CancellationTokenSource? cts;
-        uint? restoreMode = null;
 
         lock (_inputLock)
         {
@@ -1545,17 +1519,9 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
             cts = _inputCts;
             _inputTask = null;
             _inputCts = null;
-            if (_hasSavedInputMode)
-            {
-                restoreMode = _savedInputMode;
-                _hasSavedInputMode = false;
-            }
         }
 
-        if (restoreMode.HasValue && !IsInvalidHandle(_inputHandle))
-        {
-            Win32Console.SetConsoleMode(_inputHandle, restoreMode.Value);
-        }
+        _consoleModeState.RestoreInputMode(_inputHandle);
 
         if (task is null)
         {
@@ -1642,14 +1608,7 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
             return;
         }
 
-        lock (_inputLock)
-        {
-            if (!_hasSavedInputMode)
-            {
-                _savedInputMode = previousMode;
-                _hasSavedInputMode = true;
-            }
-        }
+        _consoleModeState.SaveInputModeIfNeeded(previousMode);
 
         var desiredMode = previousMode;
         desiredMode &= ~Win32Console.ENABLE_LINE_INPUT;
@@ -2045,25 +2004,13 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
     private static bool IsInvalidHandle(nint handle) => handle == 0 || handle == -1;
 
     private bool TryEnableVirtualTerminalOutput()
-    {
-        if (IsInvalidHandle(_outputHandle))
-        {
-            return false;
-        }
-
-        if (!Win32Console.GetConsoleMode(_outputHandle, out var mode))
-        {
-            return false;
-        }
-
-        var newMode = mode | Win32Console.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-        return Win32Console.SetConsoleMode(_outputHandle, newMode);
-    }
+        => _consoleModeState.TryEnableVirtualTerminalOutput(_outputHandle);
 
     /// <inheritdoc />
     public void Dispose()
     {
         StopInputAsync(CancellationToken.None).GetAwaiter().GetResult();
+        _consoleModeState.RestoreVirtualTerminalOutputMode(_outputHandle);
         RemoveCancelKeyPressHook();
 
         _events.Dispose();

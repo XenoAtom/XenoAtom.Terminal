@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using XenoAtom.Ansi;
 using XenoAtom.Terminal.Backends;
+using XenoAtom.Terminal.Internal.Windows;
 
 namespace XenoAtom.Terminal.Tests;
 
@@ -16,6 +17,79 @@ public class TerminalTests
     public void Cleanup()
     {
         Terminal.ResetForTests();
+    }
+
+    [TestMethod]
+    public void WindowsConsoleModeState_RestoresInputModeEnabledDuringInitialization()
+    {
+        var modes = new FakeWindowsConsoleModes();
+        var inputHandle = (nint)1;
+        const uint originalMode = Win32Console.ENABLE_LINE_INPUT | Win32Console.ENABLE_PROCESSED_INPUT;
+        modes.SetInitialMode(inputHandle, originalMode);
+        var state = new WindowsConsoleModeState(modes.TryGetMode, modes.TrySetMode);
+
+        Assert.IsTrue(state.TryEnableVirtualTerminalInput(inputHandle));
+        Assert.AreEqual(originalMode | Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT, modes.GetMode(inputHandle));
+
+        state.RestoreInputMode(inputHandle);
+
+        Assert.AreEqual(originalMode, modes.GetMode(inputHandle));
+    }
+
+    [TestMethod]
+    public void WindowsConsoleModeState_RestoresInputModeCapturedWhenInputStarts()
+    {
+        var modes = new FakeWindowsConsoleModes();
+        var inputHandle = (nint)1;
+        const uint originalMode = Win32Console.ENABLE_LINE_INPUT | Win32Console.ENABLE_ECHO_INPUT;
+        modes.SetInitialMode(inputHandle, originalMode);
+        var state = new WindowsConsoleModeState(modes.TryGetMode, modes.TrySetMode);
+
+        state.SaveInputModeIfNeeded(originalMode);
+        modes.SetMode(inputHandle, originalMode & ~Win32Console.ENABLE_LINE_INPUT);
+        state.RestoreInputMode(inputHandle);
+
+        Assert.AreEqual(originalMode, modes.GetMode(inputHandle));
+    }
+
+    [TestMethod]
+    public void WindowsConsoleModeState_RestoresOwnedOutputFlagAndPreservesOtherChanges()
+    {
+        var modes = new FakeWindowsConsoleModes();
+        var outputHandle = (nint)2;
+        const uint originalMode = Win32Console.ENABLE_PROCESSED_OUTPUT;
+        modes.SetInitialMode(outputHandle, originalMode);
+        var state = new WindowsConsoleModeState(modes.TryGetMode, modes.TrySetMode);
+
+        Assert.IsTrue(state.TryEnableVirtualTerminalOutput(outputHandle));
+        var activeMode = modes.GetMode(outputHandle);
+        Assert.AreNotEqual(0u, activeMode & Win32Console.ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        modes.SetMode(outputHandle, activeMode ^ Win32Console.ENABLE_WRAP_AT_EOL_OUTPUT);
+
+        state.RestoreVirtualTerminalOutputMode(outputHandle);
+
+        Assert.AreEqual(originalMode ^ Win32Console.ENABLE_WRAP_AT_EOL_OUTPUT, modes.GetMode(outputHandle));
+    }
+
+    [TestMethod]
+    public void WindowsConsoleModeState_PreservesModesThatWereAlreadyEnabled()
+    {
+        var modes = new FakeWindowsConsoleModes();
+        var inputHandle = (nint)1;
+        var outputHandle = (nint)2;
+        const uint originalInputMode = Win32Console.ENABLE_LINE_INPUT | Win32Console.ENABLE_VIRTUAL_TERMINAL_INPUT;
+        const uint originalOutputMode = Win32Console.ENABLE_PROCESSED_OUTPUT | Win32Console.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        modes.SetInitialMode(inputHandle, originalInputMode);
+        modes.SetInitialMode(outputHandle, originalOutputMode);
+        var state = new WindowsConsoleModeState(modes.TryGetMode, modes.TrySetMode);
+
+        Assert.IsTrue(state.TryEnableVirtualTerminalInput(inputHandle));
+        Assert.IsTrue(state.TryEnableVirtualTerminalOutput(outputHandle));
+        state.RestoreInputMode(inputHandle);
+        state.RestoreVirtualTerminalOutputMode(outputHandle);
+
+        Assert.AreEqual(originalInputMode, modes.GetMode(inputHandle));
+        Assert.AreEqual(originalOutputMode, modes.GetMode(outputHandle));
     }
 
     [TestMethod]
@@ -524,6 +598,30 @@ public class TerminalTests
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    private sealed class FakeWindowsConsoleModes
+    {
+        private readonly Dictionary<nint, uint> _modes = new();
+
+        public void SetInitialMode(nint handle, uint mode) => _modes.Add(handle, mode);
+
+        public void SetMode(nint handle, uint mode) => _modes[handle] = mode;
+
+        public uint GetMode(nint handle) => _modes[handle];
+
+        public bool TryGetMode(nint handle, out uint mode) => _modes.TryGetValue(handle, out mode);
+
+        public bool TrySetMode(nint handle, uint mode)
+        {
+            if (!_modes.ContainsKey(handle))
+            {
+                return false;
+            }
+
+            _modes[handle] = mode;
+            return true;
         }
     }
 
