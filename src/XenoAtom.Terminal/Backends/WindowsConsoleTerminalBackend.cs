@@ -1521,10 +1521,9 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
             _inputCts = null;
         }
 
-        _consoleModeState.RestoreInputMode(_inputHandle);
-
         if (task is null)
         {
+            _consoleModeState.RestoreInputMode(_inputHandle);
             return;
         }
 
@@ -1539,6 +1538,9 @@ internal sealed class WindowsConsoleTerminalBackend : ITerminalBackend, ITermina
         finally
         {
             cts.Dispose();
+            // Restore after the input loop has stopped: a loop that was just starting could otherwise
+            // capture and change the mode again (PrepareInputMode) after it has been restored.
+            _consoleModeState.RestoreInputMode(_inputHandle);
         }
 
         RemoveCancelKeyPressHook();

@@ -1,7 +1,14 @@
-﻿using XenoAtom.Terminal.Internal.Windows;
+// Copyright (c) Alexandre Mutel. All rights reserved.
+// Licensed under the BSD-Clause 2 license.
+// See license.txt file in the project root for full license information.
+
+using XenoAtom.Terminal.Internal.Windows;
 
 namespace XenoAtom.Terminal.Backends;
 
+/// <summary>
+/// Tracks the Windows console modes changed by the backend so they can be restored when input stops or the backend is disposed.
+/// </summary>
 internal sealed class WindowsConsoleModeState
 {
     internal delegate bool TryGetModeDelegate(nint handle, out uint mode);
