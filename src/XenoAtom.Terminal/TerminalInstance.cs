@@ -68,6 +68,50 @@ public sealed partial class TerminalInstance : IDisposable
     }
 
     /// <summary>
+    /// Initializes a new standalone terminal instance over the specified backend, using default <see cref="TerminalOptions"/>.
+    /// </summary>
+    /// <param name="backend">The backend to use. The instance takes ownership of it and disposes it when the instance is disposed.</param>
+    /// <remarks>
+    /// <para>
+    /// A standalone instance is independent from the process-global instance used by the static <see cref="Terminal"/> facade:
+    /// creating it does not initialize, replace or otherwise change the global instance, and disposing it does not affect the global instance.
+    /// Several standalone instances can coexist in the same process (for example one per thread or per test).
+    /// </para>
+    /// <para>
+    /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="backend"/> is <see langword="null"/>.</exception>
+    public TerminalInstance(ITerminalBackend backend) : this()
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        Initialize(backend, options: null);
+    }
+
+    /// <summary>
+    /// Initializes a new standalone terminal instance over the specified backend, using the specified options.
+    /// </summary>
+    /// <param name="backend">The backend to use. The instance takes ownership of it and disposes it when the instance is disposed.</param>
+    /// <param name="options">The options to use.</param>
+    /// <remarks>
+    /// <para>
+    /// A standalone instance is independent from the process-global instance used by the static <see cref="Terminal"/> facade:
+    /// creating it does not initialize, replace or otherwise change the global instance, and disposing it does not affect the global instance.
+    /// Several standalone instances can coexist in the same process (for example one per thread or per test).
+    /// </para>
+    /// <para>
+    /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="backend"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    public TerminalInstance(ITerminalBackend backend, TerminalOptions options) : this()
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        ArgumentNullException.ThrowIfNull(options);
+        Initialize(backend, options);
+    }
+
+    /// <summary>
     /// Gets a value indicating whether this instance has been initialized with a backend.
     /// </summary>
     public bool IsInitialized => _isInitialized;
