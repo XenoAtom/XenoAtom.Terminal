@@ -1,9 +1,14 @@
 # configuration file for dotnet-releaser
 # Disable default packs - It will only publish NuGet and the Changelog
+profile = "custom"
 [msbuild]
 project = "XenoAtom.Terminal.slnx"
 [github]
 user = "XenoAtom"
 repo = "XenoAtom.Terminal"
+[nuget]
+user = "xoofx"
+# Publish with NuGet trusted publishing (GitHub OIDC): no NUGET_TOKEN secret is needed.
+trusted_publishing = true
 [changelog]
 owners = ["xoofx"] # To avoid to be mentioned in the changelog
