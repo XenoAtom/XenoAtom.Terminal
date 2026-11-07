@@ -25,6 +25,10 @@ public static partial class Terminal
     [ThreadStatic]
     private static AmbientInstanceScope? _ambientScope;
 
+    // Standalone instances that are not disposed yet; they are disposed when the process exits.
+    private static readonly Lock StandaloneLock = new();
+    private static readonly HashSet<TerminalInstance> StandaloneInstances = new();
+
     /// <summary>
     /// Gets the terminal instance targeted by the static <see cref="Terminal"/> members on the calling thread.
     /// </summary>
@@ -321,14 +325,23 @@ public static partial class Terminal
     /// Disposing it more than once has no effect.
     /// </para>
     /// <para>
+    /// A disposed instance cannot be made ambient: <see cref="ObjectDisposedException"/> is thrown.
+    /// </para>
+    /// <para>
     /// This method does not change the process-global instance: <see cref="IsInitialized"/>, <see cref="Initialize"/>, <see cref="Open"/> and <see cref="Close"/>
     /// keep operating on the global instance.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="instance"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ObjectDisposedException"><paramref name="instance"/> has been disposed.</exception>
     public static TerminalScope UseInstance(TerminalInstance instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
+        if (instance.IsDisposed)
+        {
+            // Fail here rather than at the first static call on this thread, which would not say why.
+            throw new ObjectDisposedException(nameof(instance), "A disposed terminal instance cannot become the ambient instance.");
+        }
 
         var scope = new AmbientInstanceScope(_ambientInstance, _ambientScope);
         _ambientInstance = instance;
@@ -343,20 +356,67 @@ public static partial class Terminal
             return;
         }
 
-        void Cleanup()
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => DisposeInstancesForProcessExit();
+        AppDomain.CurrentDomain.UnhandledException += (_, _) => DisposeInstancesForProcessExit();
+    }
+
+    /// <summary>
+    /// Registers a standalone instance so that it is disposed when the process exits, unless it is disposed before.
+    /// </summary>
+    internal static void TrackStandaloneInstance(TerminalInstance instance)
+    {
+        lock (StandaloneLock)
+        {
+            StandaloneInstances.Add(instance);
+        }
+
+        HookProcessLifetime();
+    }
+
+    /// <summary>
+    /// Removes a standalone instance from the process-exit registry. Called when the instance is disposed.
+    /// </summary>
+    internal static void UntrackStandaloneInstance(TerminalInstance instance)
+    {
+        lock (StandaloneLock)
+        {
+            StandaloneInstances.Remove(instance);
+        }
+    }
+
+    /// <summary>
+    /// Disposes the global instance and every standalone instance that is still alive (best effort).
+    /// </summary>
+    internal static void DisposeInstancesForProcessExit()
+    {
+        try
+        {
+            Volatile.Read(ref _instance)?.Dispose();
+        }
+        catch
+        {
+            // Best-effort.
+        }
+
+        TerminalInstance[] standalone;
+        lock (StandaloneLock)
+        {
+            standalone = [.. StandaloneInstances];
+            StandaloneInstances.Clear();
+        }
+
+        // Disposed outside the lock: disposing a backend may take time and calls back into UntrackStandaloneInstance.
+        foreach (var instance in standalone)
         {
             try
             {
-                Volatile.Read(ref _instance)?.Dispose();
+                instance.Dispose();
             }
             catch
             {
                 // Best-effort.
             }
         }
-
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
-        AppDomain.CurrentDomain.UnhandledException += (_, _) => Cleanup();
     }
 
     /// <summary>

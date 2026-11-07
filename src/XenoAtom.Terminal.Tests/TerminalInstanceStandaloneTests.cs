@@ -3,6 +3,7 @@
 // See license.txt file in the project root for full license information.
 
 using System.Threading;
+using XenoAtom.Ansi;
 using XenoAtom.Terminal.Backends;
 
 namespace XenoAtom.Terminal.Tests;
@@ -446,6 +447,85 @@ public class TerminalInstanceStandaloneTests
 
         Assert.AreEqual("still alive", backend.GetOutText());
         Assert.IsFalse(Terminal.IsInitialized);
+    }
+
+    [TestMethod]
+    public void UseInstance_DisposedInstance_ThrowsWithoutChangingAmbient()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var active = new TerminalInstance(new InMemoryTerminalBackend());
+        var disposed = new TerminalInstance(new InMemoryTerminalBackend());
+        disposed.Dispose();
+
+        using (Terminal.UseInstance(active))
+        {
+            Assert.ThrowsExactly<ObjectDisposedException>(() => Terminal.UseInstance(disposed));
+            Assert.AreSame(active, Terminal.Instance);
+        }
+
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void ProcessExit_DisposesStandaloneInstancesThatAreStillAlive()
+    {
+        // Never disposed by the test: the process-exit path must dispose it.
+        var alive = new DisposeCountingBackend();
+        _ = new TerminalInstance(alive);
+
+        // Disposed by the test: the process-exit path must not dispose it again.
+        var disposed = new DisposeCountingBackend();
+        new TerminalInstance(disposed).Dispose();
+
+        Terminal.DisposeInstancesForProcessExit();
+
+        Assert.AreEqual(1, alive.DisposeCount);
+        Assert.AreEqual(1, disposed.DisposeCount);
+    }
+
+    [TestMethod]
+    public void CaptureOutput_OnlyCapturesOutputOfItsOwnInstance()
+    {
+        var backend1 = new InMemoryTerminalBackend();
+        var backend2 = new InMemoryTerminalBackend();
+        using var terminal1 = new TerminalInstance(backend1);
+        using var terminal2 = new TerminalInstance(backend2);
+        using var builder = new AnsiBuilder();
+
+        using (terminal1.CaptureOutput(builder))
+        {
+            terminal1.Write("mine");
+            terminal2.Write("other");
+        }
+
+        Assert.AreEqual("mine", builder.ToString());
+        Assert.AreEqual("", backend1.GetOutText());
+        Assert.AreEqual("other", backend2.GetOutText());
+    }
+
+    [TestMethod]
+    public void CaptureOutput_NestedAcrossInstances_RoutesEachWriteToItsOwner()
+    {
+        var backend1 = new InMemoryTerminalBackend();
+        var backend2 = new InMemoryTerminalBackend();
+        using var terminal1 = new TerminalInstance(backend1);
+        using var terminal2 = new TerminalInstance(backend2);
+        using var builder1 = new AnsiBuilder();
+        using var builder2 = new AnsiBuilder();
+
+        using (terminal1.CaptureOutput(builder1))
+        using (terminal2.CaptureOutput(builder2))
+        {
+            terminal1.Write("a");
+            terminal2.Write("b");
+            // The innermost capture belongs to terminal2, but this write is terminal1's.
+            terminal1.Write("c");
+        }
+
+        Assert.AreEqual("ac", builder1.ToString());
+        Assert.AreEqual("b", builder2.ToString());
+        Assert.AreEqual("", backend1.GetOutText());
+        Assert.AreEqual("", backend2.GetOutText());
     }
 
     /// <summary>

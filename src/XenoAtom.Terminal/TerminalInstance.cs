@@ -82,7 +82,8 @@ public sealed partial class TerminalInstance : IDisposable
     /// Use <see cref="Terminal.UseInstance(TerminalInstance)"/> to make it the instance targeted by the static <see cref="Terminal"/> facade on the current thread.
     /// </para>
     /// <para>
-    /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// The caller is responsible for disposing the instance as soon as it is no longer needed: until then the library keeps it alive.
+    /// If the process exits first, the instance is disposed then, like the global instance.
     /// If the constructor throws after taking ownership of the backend (for example because the backend fails to initialize), the backend is disposed.
     /// </para>
     /// </remarks>
@@ -106,7 +107,8 @@ public sealed partial class TerminalInstance : IDisposable
     /// Use <see cref="Terminal.UseInstance(TerminalInstance)"/> to make it the instance targeted by the static <see cref="Terminal"/> facade on the current thread.
     /// </para>
     /// <para>
-    /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// The caller is responsible for disposing the instance as soon as it is no longer needed: until then the library keeps it alive.
+    /// If the process exits first, the instance is disposed then, like the global instance.
     /// If the constructor throws after taking ownership of the backend (for example because the backend fails to initialize), the backend is disposed.
     /// Arguments are validated before ownership is taken, so an <see cref="ArgumentNullException"/> leaves the backend to the caller.
     /// </para>
@@ -127,7 +129,14 @@ public sealed partial class TerminalInstance : IDisposable
             Dispose();
             throw;
         }
+
+        Terminal.TrackStandaloneInstance(this);
     }
+
+    /// <summary>
+    /// Gets a value indicating whether this instance has been disposed.
+    /// </summary>
+    internal bool IsDisposed => _isDisposed;
 
     /// <summary>
     /// Gets a value indicating whether this instance has been initialized with a backend.
@@ -202,7 +211,7 @@ public sealed partial class TerminalInstance : IDisposable
     /// </remarks>
     public AnsiStyle Style
     {
-        get => _outputCapture?.Style ?? _style;
+        get => GetActiveCapture()?.Style ?? _style;
         set => SetStyleCore(value);
     }
 
@@ -1730,7 +1739,7 @@ public sealed partial class TerminalInstance : IDisposable
 
     private void SetStyleCore(AnsiStyle style)
     {
-        var capture = _outputCapture;
+        var capture = GetActiveCapture();
         var previous = capture?.Style ?? _style;
         var next = style.ResolveMissingFrom(previous);
         lock (_outputLock)
@@ -1761,12 +1770,16 @@ public sealed partial class TerminalInstance : IDisposable
     }
 
     /// <summary>
-    /// Captures all terminal output performed on the current thread into the provided <see cref="AnsiBuilder"/>.
+    /// Captures the terminal output of this instance performed on the current thread into the provided <see cref="AnsiBuilder"/>.
     /// </summary>
     /// <remarks>
     /// This is primarily useful for scenarios that need to interleave regular terminal output with an inline
     /// "live" region (e.g. a terminal UI host), so that writes can be replayed above the live region in a single
     /// atomic operation.
+    /// <para>
+    /// Only output of this instance is captured: output of other instances on the same thread still goes to their own backend.
+    /// Captures on one thread must be ended in reverse order of creation.
+    /// </para>
     /// </remarks>
     /// <param name="builder">The builder receiving the captured ANSI/text output.</param>
     /// <returns>A scope that ends the capture when disposed.</returns>
@@ -1781,11 +1794,31 @@ public sealed partial class TerminalInstance : IDisposable
         return new TerminalOutputCaptureScope(this, builder);
     }
 
+    /// <summary>
+    /// Returns the innermost capture of the current thread that targets this instance, or <see langword="null"/>.
+    /// </summary>
+    /// <remarks>
+    /// Captures are stored per thread, so a capture started on another instance can be the innermost one.
+    /// Walking the chain keeps output of this instance going to its own capture, and output of other instances out of it.
+    /// </remarks>
+    private OutputCaptureContext? GetActiveCapture()
+    {
+        for (var capture = _outputCapture; capture is not null; capture = capture.Previous)
+        {
+            if (ReferenceEquals(capture.Owner, this))
+            {
+                return capture;
+            }
+        }
+
+        return null;
+    }
+
     private TextWriter GetRawOutUnsafe()
-        => _outputCapture?.RawOut ?? _rawOut ?? throw new InvalidOperationException("Terminal is not initialized.");
+        => GetActiveCapture()?.RawOut ?? _rawOut ?? throw new InvalidOperationException("Terminal is not initialized.");
 
     private AnsiWriter GetAnsiWriterUnsafe()
-        => _outputCapture?.Writer ?? _writerUnsafe ?? throw new InvalidOperationException("Terminal is not initialized.");
+        => GetActiveCapture()?.Writer ?? _writerUnsafe ?? throw new InvalidOperationException("Terminal is not initialized.");
 
     private AnsiMarkup GetMarkupUnsafe()
     {
@@ -1798,7 +1831,7 @@ public sealed partial class TerminalInstance : IDisposable
         var customStylesRevision = Volatile.Read(ref _customMarkupStylesRevision);
         var customStylesCount = customStyles?.Count ?? 0;
 
-        var capture = _outputCapture;
+        var capture = GetActiveCapture();
         if (capture is not null)
         {
             return capture.GetMarkup(customStylesRevision, customStyles, customStylesCount);
@@ -1835,8 +1868,10 @@ public sealed partial class TerminalInstance : IDisposable
         private Dictionary<string, AnsiStyle>? _customStyles;
         private int _customStylesCount;
 
-        public OutputCaptureContext(AnsiBuilder builder, AnsiCapabilities capabilities, AnsiStyle initialStyle, int customStylesRevision, Dictionary<string, AnsiStyle>? customStyles, int customStylesCount)
+        public OutputCaptureContext(TerminalInstance owner, OutputCaptureContext? previous, AnsiBuilder builder, AnsiCapabilities capabilities, AnsiStyle initialStyle, int customStylesRevision, Dictionary<string, AnsiStyle>? customStyles, int customStylesCount)
         {
+            Owner = owner;
+            Previous = previous;
             Builder = builder;
             RawOut = new AnsiBuilderTextWriter(builder);
             Writer = new AnsiWriter(builder, capabilities);
@@ -1848,6 +1883,10 @@ public sealed partial class TerminalInstance : IDisposable
             Style = initialStyle;
         }
 
+        /// <summary>The instance whose output this capture receives.</summary>
+        public TerminalInstance Owner { get; }
+        /// <summary>The capture that was active on the thread when this one started.</summary>
+        public OutputCaptureContext? Previous { get; }
         public AnsiBuilder Builder { get; }
         public TextWriter RawOut { get; }
         public AnsiWriter Writer { get; }
@@ -1875,6 +1914,7 @@ public sealed partial class TerminalInstance : IDisposable
     public readonly struct TerminalOutputCaptureScope : IDisposable
     {
         private readonly OutputCaptureContext? _previous;
+        private readonly OutputCaptureContext? _context;
         private readonly TerminalInstance _terminal;
 
         internal TerminalOutputCaptureScope(TerminalInstance terminal, AnsiBuilder builder)
@@ -1884,19 +1924,22 @@ public sealed partial class TerminalInstance : IDisposable
             builder.Clear();
 
             var customStyles = terminal._customMarkupStyles;
-            _outputCapture = new OutputCaptureContext(
+            _context = new OutputCaptureContext(
+                terminal,
+                _previous,
                 builder,
                 terminal._ansiCapabilities!,
                 terminal._style,
                 Volatile.Read(ref terminal._customMarkupStylesRevision),
                 customStyles,
                 customStyles?.Count ?? 0);
+            _outputCapture = _context;
         }
 
         /// <summary>
         /// Gets the builder receiving the captured output.
         /// </summary>
-        public AnsiBuilder Builder => _outputCapture?.Builder ?? throw new InvalidOperationException("No active capture.");
+        public AnsiBuilder Builder => _context?.Builder ?? throw new InvalidOperationException("No active capture.");
 
         /// <summary>
         /// Gets a span over the captured content.
@@ -1986,6 +2029,7 @@ public sealed partial class TerminalInstance : IDisposable
         }
 
         _isDisposed = true;
+        Terminal.UntrackStandaloneInstance(this);
         try
         {
             _backend?.Dispose();

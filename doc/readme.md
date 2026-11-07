@@ -122,7 +122,7 @@ Terminal.Initialize(backend);
 
 #### Standalone instances
 
-To use a terminal without touching the global instance (for example one terminal per thread or per test), create a standalone `TerminalInstance` over a backend. It is initialized on construction, owns the backend (which is disposed too if the construction fails), and is never registered as the global instance:
+To use a terminal without touching the global instance (for example one terminal per thread or per test), create a standalone `TerminalInstance` over a backend. It is initialized on construction, owns the backend (which is disposed too if the construction fails), and is never registered as the global instance. Dispose it when you are done with it; if you do not, it is disposed when the process exits, like the global instance:
 
 ```csharp
 using XenoAtom.Terminal.Backends;
