@@ -19,9 +19,7 @@ public static partial class Terminal
     private static TerminalInstance? _instance;
     private static int _processExitHooked;
 
-    [ThreadStatic]
-    private static TerminalInstance? _ambientInstance;
-
+    // Innermost live ambient scope of the calling thread; each scope links to the live scope that was active before it.
     [ThreadStatic]
     private static AmbientInstanceScope? _ambientScope;
 
@@ -40,10 +38,10 @@ public static partial class Terminal
     {
         get
         {
-            var ambient = _ambientInstance;
+            var ambient = _ambientScope;
             if (ambient is not null)
             {
-                return ambient;
+                return ambient.Instance;
             }
 
             EnsureInitialized();
@@ -316,6 +314,9 @@ public static partial class Terminal
     /// reach a standalone <see cref="TerminalInstance"/> without the instance being passed around.
     /// </para>
     /// <para>
+    /// To end this scope before the scopes created after it, use <see cref="UseInstance(TerminalInstance, bool)"/> with <c>allowOutOfOrderDisposal</c> set to <see langword="true"/>.
+    /// </para>
+    /// <para>
     /// The ambient instance is stored per thread: other threads keep seeing their own ambient instance or the global instance,
     /// and it does not flow to tasks started from the calling thread or to <c>await</c> continuations that resume on another thread.
     /// </para>
@@ -334,7 +335,37 @@ public static partial class Terminal
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="instance"/> is <see langword="null"/>.</exception>
     /// <exception cref="ObjectDisposedException"><paramref name="instance"/> has been disposed.</exception>
-    public static TerminalScope UseInstance(TerminalInstance instance)
+    public static TerminalScope UseInstance(TerminalInstance instance) => UseInstance(instance, allowOutOfOrderDisposal: false);
+
+    /// <summary>
+    /// Makes the specified instance the ambient terminal instance of the calling thread until the returned scope is disposed,
+    /// optionally allowing the scope to be disposed before the scopes created after it.
+    /// </summary>
+    /// <param name="instance">The instance returned by <see cref="Instance"/>, and therefore targeted by every static <see cref="Terminal"/> member, on the calling thread while the scope is active.</param>
+    /// <param name="allowOutOfOrderDisposal">
+    /// <see langword="true"/> to let this scope be disposed while scopes created after it are still active. Such a scope is unlinked from the chain:
+    /// the scopes created after it stay in effect and, when they end, restore the scope that was active before this one, never this instance.
+    /// <see langword="false"/> to require the reverse order of creation, as <see cref="UseInstance(TerminalInstance)"/> does.
+    /// </param>
+    /// <returns>A scope that ends the ambient instance when disposed.</returns>
+    /// <remarks>
+    /// <para>
+    /// This overload exists for a component that owns a scope while user code creates scopes of its own inside it (for example a UI host),
+    /// and that must be able to end its own scope first. The scope created with <see langword="true"/> is the one that may be disposed out of order;
+    /// scopes created with <see langword="false"/> keep the strict behavior, even when they are nested inside it.
+    /// </para>
+    /// <para>
+    /// Disposing an active scope on another thread throws <see cref="InvalidOperationException"/> without consuming it, whatever the option.
+    /// Disposing a scope more than once has no effect, and so does disposing an unlinked scope again.
+    /// Scopes are identified by their creation, so the same instance can be selected by several nested scopes.
+    /// </para>
+    /// <para>
+    /// Like <see cref="UseInstance(TerminalInstance)"/>, this method does not change the process-global instance.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="instance"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ObjectDisposedException"><paramref name="instance"/> has been disposed.</exception>
+    public static TerminalScope UseInstance(TerminalInstance instance, bool allowOutOfOrderDisposal)
     {
         ArgumentNullException.ThrowIfNull(instance);
         if (instance.IsDisposed)
@@ -343,8 +374,7 @@ public static partial class Terminal
             throw new ObjectDisposedException(nameof(instance), "A disposed terminal instance cannot become the ambient instance.");
         }
 
-        var scope = new AmbientInstanceScope(_ambientInstance, _ambientScope);
-        _ambientInstance = instance;
+        var scope = new AmbientInstanceScope(instance, _ambientScope, allowOutOfOrderDisposal);
         _ambientScope = scope;
         return new TerminalScope(scope);
     }
@@ -427,7 +457,6 @@ public static partial class Terminal
     /// </remarks>
     internal static void ResetForTests()
     {
-        _ambientInstance = null;
         _ambientScope = null;
         Close();
     }
@@ -546,19 +575,30 @@ public static partial class Terminal
         Initialize();
     }
 
+    /// <summary>
+    /// One link of the chain of ambient scopes of a thread. The chain starts at <see cref="_ambientScope"/> and only holds the scopes that are
+    /// not disposed: a scope disposed out of order is spliced out of the chain right away, so the scopes above it never reference it again.
+    /// </summary>
     private sealed class AmbientInstanceScope : IDisposable
     {
-        private readonly TerminalInstance? _previous;
-        private readonly AmbientInstanceScope? _previousScope;
+        // The scope that was active before this one. Cleared once this scope is disposed.
+        private AmbientInstanceScope? _previous;
         private readonly int _threadId;
+        private readonly bool _allowOutOfOrderDisposal;
         private bool _isDisposed;
 
-        public AmbientInstanceScope(TerminalInstance? previous, AmbientInstanceScope? previousScope)
+        public AmbientInstanceScope(TerminalInstance instance, AmbientInstanceScope? previous, bool allowOutOfOrderDisposal)
         {
+            Instance = instance;
             _previous = previous;
-            _previousScope = previousScope;
+            _allowOutOfOrderDisposal = allowOutOfOrderDisposal;
             _threadId = Environment.CurrentManagedThreadId;
         }
+
+        /// <summary>
+        /// Gets the instance made ambient by this scope.
+        /// </summary>
+        public TerminalInstance Instance { get; }
 
         public void Dispose()
         {
@@ -573,14 +613,42 @@ public static partial class Terminal
             }
 
             // Track scope identity, not instance identity: nested scopes may select the same terminal.
-            if (!ReferenceEquals(_ambientScope, this))
+            if (ReferenceEquals(_ambientScope, this))
+            {
+                // Pop: the scope that was active before this one becomes the ambient scope again.
+                _isDisposed = true;
+                _ambientScope = _previous;
+                _previous = null;
+                return;
+            }
+
+            if (!_allowOutOfOrderDisposal)
             {
                 throw new InvalidOperationException("Ambient terminal scopes must be disposed in reverse order of creation.");
             }
 
+            Unlink();
+        }
+
+        // Splices this scope out of the chain: the scope directly above it (its successor) now links to the scope that was active before
+        // this one. The scopes above stay active with their own instance.
+        private void Unlink()
+        {
+            // Every live scope of the thread is reachable from the top, except after ResetForTests cleared the chain without disposing
+            // its scopes: the walk then finds no successor and there is nothing to splice.
+            var successor = _ambientScope;
+            while (successor is not null && !ReferenceEquals(successor._previous, this))
+            {
+                successor = successor._previous;
+            }
+
+            if (successor is not null)
+            {
+                successor._previous = _previous;
+            }
+
             _isDisposed = true;
-            _ambientInstance = _previous;
-            _ambientScope = _previousScope;
+            _previous = null;
         }
     }
 }

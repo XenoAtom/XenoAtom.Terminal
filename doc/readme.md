@@ -142,6 +142,18 @@ using (Terminal.UseInstance(terminal))
 
 The ambient instance is per thread: it does not flow to other threads or tasks, and scopes must be disposed on the thread that created them in reverse order of creation (avoid `await` inside the scope unless the continuation resumes on the same thread). Disposing an active scope on another thread or out of order throws `InvalidOperationException` without consuming it; it can still be disposed correctly afterwards. Repeated disposal after successful disposal has no effect.
 
+A component that owns a scope while user code creates scopes inside it can opt in to ending its own scope first with `Terminal.UseInstance(terminal, allowOutOfOrderDisposal: true)`. Disposing that scope while inner scopes are still active unlinks it: the inner scopes keep their terminal, and when they end they restore the scope that was active before the unlinked one, never the unlinked terminal. Scopes created without the option keep the strict behavior, even when they are nested inside an opted-in scope:
+
+```csharp
+var owner = Terminal.UseInstance(uiTerminal, allowOutOfOrderDisposal: true);
+using (Terminal.UseInstance(userTerminal))
+{
+    owner.Dispose(); // allowed: unlinks the owner; the user scope stays ambient
+    Terminal.WriteLine("Still written to the user terminal");
+}
+// The global instance is ambient again, not uiTerminal.
+```
+
 `Terminal.IsInitialized`, `Terminal.Initialize`, `Terminal.Open` and `Terminal.Close` keep operating on the global instance. If global initialization fails, the selected backend is disposed and initialization can be retried.
 
 ## Capabilities and backends

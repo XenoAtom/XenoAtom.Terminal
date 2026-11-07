@@ -528,6 +528,313 @@ public class TerminalInstanceStandaloneTests
         Assert.AreEqual("", backend2.GetOutText());
     }
 
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_OuterDisposedFirst_KeepsInnerAndNeverRestoresOuter()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var outerTerminal = new TerminalInstance(new InMemoryTerminalBackend());
+        using var innerTerminal = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(outerTerminal, allowOutOfOrderDisposal: true);
+        var inner = Terminal.UseInstance(innerTerminal);
+
+        outer.Dispose();
+        Assert.AreSame(innerTerminal, Terminal.Instance);
+
+        inner.Dispose();
+        // The disposed outer terminal must not come back as the ambient instance.
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_MiddleDisposed_IsSkippedWhenInnerScopesEnd()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal3 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1);
+        var middle = Terminal.UseInstance(terminal2, allowOutOfOrderDisposal: true);
+        var inner = Terminal.UseInstance(terminal3);
+
+        middle.Dispose();
+        Assert.AreSame(terminal3, Terminal.Instance);
+
+        inner.Dispose();
+        Assert.AreSame(terminal1, Terminal.Instance);
+
+        outer.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_OuterWithSeveralStrictInnerScopes_RestoresInOrder()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal3 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: true);
+        var inner1 = Terminal.UseInstance(terminal2);
+        var inner2 = Terminal.UseInstance(terminal3);
+
+        outer.Dispose();
+        Assert.AreSame(terminal3, Terminal.Instance);
+
+        inner2.Dispose();
+        Assert.AreSame(terminal2, Terminal.Instance);
+
+        inner1.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_StrictMiddleStillThrows_WithoutConsumingScope()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal3 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: true);
+        var strictMiddle = Terminal.UseInstance(terminal2);
+        var inner = Terminal.UseInstance(terminal3);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => strictMiddle.Dispose());
+        Assert.AreSame(terminal3, Terminal.Instance);
+
+        inner.Dispose();
+        Assert.AreSame(terminal2, Terminal.Instance);
+        strictMiddle.Dispose();
+        Assert.AreSame(terminal1, Terminal.Instance);
+        outer.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_SameInstanceNested_UsesScopeIdentity()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal, allowOutOfOrderDisposal: true);
+        var inner = Terminal.UseInstance(terminal);
+
+        // Same terminal on both scopes: unlinking the outer one must not be mistaken for unlinking the inner one.
+        outer.Dispose();
+        Assert.AreSame(terminal, Terminal.Instance);
+
+        inner.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_TwoOptInScopesOnSameInstance_RestoreByIdentity()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var first = Terminal.UseInstance(terminal, allowOutOfOrderDisposal: true);
+        var second = Terminal.UseInstance(terminal, allowOutOfOrderDisposal: true);
+
+        first.Dispose();
+        Assert.AreSame(terminal, Terminal.Instance);
+
+        second.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_RepeatedDisposal_IsNoOp()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: true);
+        var inner = Terminal.UseInstance(terminal2);
+
+        outer.Dispose();
+        outer.Dispose();
+        Assert.AreSame(terminal2, Terminal.Instance);
+
+        inner.Dispose();
+        inner.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+
+        // Disposing an unlinked scope after the chain has unwound must still do nothing.
+        outer.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_UnlinkedScopeIsSkippedWhenTopIsDisposed()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var first = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: true);
+        var second = Terminal.UseInstance(terminal2, allowOutOfOrderDisposal: true);
+
+        first.Dispose();
+        Assert.AreSame(terminal2, Terminal.Instance);
+
+        second.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_ChainedUnlinks_RestoreGlobalWhenInnerEnds()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal3 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: true);
+        var middle = Terminal.UseInstance(terminal2, allowOutOfOrderDisposal: true);
+        var inner = Terminal.UseInstance(terminal3);
+
+        middle.Dispose();
+        Assert.AreSame(terminal3, Terminal.Instance);
+        outer.Dispose();
+        Assert.AreSame(terminal3, Terminal.Instance);
+
+        inner.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_ScopeCreatedAfterUnlink_RestoresThroughSplicedChain()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal3 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: true);
+        var middle = Terminal.UseInstance(terminal2, allowOutOfOrderDisposal: true);
+
+        outer.Dispose();
+        Assert.AreSame(terminal2, Terminal.Instance);
+
+        // The scope pushed on the spliced chain restores the middle scope, which in turn restores the global instance.
+        var later = Terminal.UseInstance(terminal3);
+        later.Dispose();
+        Assert.AreSame(terminal2, Terminal.Instance);
+
+        middle.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_DisposeOnOtherThread_ThrowsWithoutConsumingScope()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var scope = Terminal.UseInstance(terminal, allowOutOfOrderDisposal: true);
+
+        Exception? caught = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                scope.Dispose();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.Start();
+        thread.Join();
+
+        Assert.IsInstanceOfType<InvalidOperationException>(caught);
+        Assert.AreSame(terminal, Terminal.Instance);
+
+        scope.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptInFalse_IsStrictLikeTheDefault()
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var terminal1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var terminal2 = new TerminalInstance(new InMemoryTerminalBackend());
+
+        var outer = Terminal.UseInstance(terminal1, allowOutOfOrderDisposal: false);
+        var inner = Terminal.UseInstance(terminal2);
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => outer.Dispose());
+        Assert.AreSame(terminal2, Terminal.Instance);
+
+        inner.Dispose();
+        Assert.AreSame(terminal1, Terminal.Instance);
+        outer.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    public void UseInstance_OutOfOrderOptIn_ScopeUnreachableAfterReset_DisposeIsSafeAndIdempotent()
+    {
+        using var stale1 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var stale2 = new TerminalInstance(new InMemoryTerminalBackend());
+        using var fresh = new TerminalInstance(new InMemoryTerminalBackend());
+        var staleScope1 = Terminal.UseInstance(stale1, allowOutOfOrderDisposal: true);
+        var staleScope2 = Terminal.UseInstance(stale2, allowOutOfOrderDisposal: true);
+
+        // Clears the chain of this thread without disposing its scopes: both stale scopes become unreachable.
+        Terminal.ResetForTests();
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        var freshScope = Terminal.UseInstance(fresh);
+
+        // A new chain is active: disposing an unreachable scope must neither throw nor touch it.
+        staleScope1.Dispose();
+        staleScope1.Dispose();
+        Assert.AreSame(fresh, Terminal.Instance);
+
+        freshScope.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+
+        // The chain is now empty: disposing an unreachable scope must still be safe.
+        staleScope2.Dispose();
+        staleScope2.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UseInstance_WithOption_NullInstance_Throws(bool allowOutOfOrderDisposal)
+    {
+        var ex = Assert.ThrowsExactly<ArgumentNullException>(() => Terminal.UseInstance(null!, allowOutOfOrderDisposal));
+        Assert.AreEqual("instance", ex.ParamName);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UseInstance_WithOption_DisposedInstance_ThrowsWithoutChangingAmbient(bool allowOutOfOrderDisposal)
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var active = new TerminalInstance(new InMemoryTerminalBackend());
+        var disposed = new TerminalInstance(new InMemoryTerminalBackend());
+        disposed.Dispose();
+
+        using (Terminal.UseInstance(active))
+        {
+            Assert.ThrowsExactly<ObjectDisposedException>(() => Terminal.UseInstance(disposed, allowOutOfOrderDisposal));
+            Assert.AreSame(active, Terminal.Instance);
+        }
+
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
     /// <summary>
     /// A backend that counts its <see cref="Dispose"/> calls, to observe which owner disposes it.
     /// </summary>
