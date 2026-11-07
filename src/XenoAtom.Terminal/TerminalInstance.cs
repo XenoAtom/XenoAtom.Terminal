@@ -11,7 +11,8 @@ using XenoAtom.Terminal.Internal;
 namespace XenoAtom.Terminal;
 
 /// <summary>
-/// Stateful, instance-based terminal API. The static <see cref="Terminal"/> facade forwards to a single global instance.
+/// Stateful, instance-based terminal API. The static <see cref="Terminal"/> facade forwards to the ambient instance of the current thread
+/// (see <see cref="Terminal.UseInstance(TerminalInstance)"/>) or, when there is none, to a single global instance.
 /// </summary>
 public sealed partial class TerminalInstance : IDisposable
 {
@@ -65,6 +66,67 @@ public sealed partial class TerminalInstance : IDisposable
         _window = new TerminalWindow(this);
         _clipboard = new TerminalClipboard(this);
         _in = new TerminalTextReader(this);
+    }
+
+    /// <summary>
+    /// Initializes a new standalone terminal instance over the specified backend, using default <see cref="TerminalOptions"/>.
+    /// </summary>
+    /// <param name="backend">The backend to use. The instance takes ownership of it and disposes it when the instance is disposed.</param>
+    /// <remarks>
+    /// <para>
+    /// A standalone instance is independent from the process-global instance used by the static <see cref="Terminal"/> facade:
+    /// creating it does not initialize, replace or otherwise change the global instance, and disposing it does not affect the global instance.
+    /// Several standalone instances can coexist in the same process (for example one per thread or per test).
+    /// </para>
+    /// <para>
+    /// Use <see cref="Terminal.UseInstance(TerminalInstance)"/> to make it the instance targeted by the static <see cref="Terminal"/> facade on the current thread.
+    /// </para>
+    /// <para>
+    /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// If the constructor throws after taking ownership of the backend (for example because the backend fails to initialize), the backend is disposed.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="backend"/> is <see langword="null"/>.</exception>
+    public TerminalInstance(ITerminalBackend backend) : this(backend, new TerminalOptions())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new standalone terminal instance over the specified backend, using the specified options.
+    /// </summary>
+    /// <param name="backend">The backend to use. The instance takes ownership of it and disposes it when the instance is disposed.</param>
+    /// <param name="options">The options to use.</param>
+    /// <remarks>
+    /// <para>
+    /// A standalone instance is independent from the process-global instance used by the static <see cref="Terminal"/> facade:
+    /// creating it does not initialize, replace or otherwise change the global instance, and disposing it does not affect the global instance.
+    /// Several standalone instances can coexist in the same process (for example one per thread or per test).
+    /// </para>
+    /// <para>
+    /// Use <see cref="Terminal.UseInstance(TerminalInstance)"/> to make it the instance targeted by the static <see cref="Terminal"/> facade on the current thread.
+    /// </para>
+    /// <para>
+    /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// If the constructor throws after taking ownership of the backend (for example because the backend fails to initialize), the backend is disposed.
+    /// Arguments are validated before ownership is taken, so an <see cref="ArgumentNullException"/> leaves the backend to the caller.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="backend"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
+    public TerminalInstance(ITerminalBackend backend, TerminalOptions options) : this()
+    {
+        ArgumentNullException.ThrowIfNull(backend);
+        ArgumentNullException.ThrowIfNull(options);
+
+        try
+        {
+            Initialize(backend, options);
+        }
+        catch
+        {
+            // No caller can dispose the backend once the constructor throws: release it here, keep the original exception.
+            Dispose();
+            throw;
+        }
     }
 
     /// <summary>

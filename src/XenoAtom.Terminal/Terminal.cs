@@ -19,26 +19,48 @@ public static partial class Terminal
     private static TerminalInstance? _instance;
     private static int _processExitHooked;
 
+    [ThreadStatic]
+    private static TerminalInstance? _ambientInstance;
+
+    [ThreadStatic]
+    private static AmbientInstanceScope? _ambientScope;
+
     /// <summary>
-    /// Gets the global terminal instance (initialized lazily).
+    /// Gets the terminal instance targeted by the static <see cref="Terminal"/> members on the calling thread.
     /// </summary>
+    /// <remarks>
+    /// Returns the ambient instance of the calling thread when one is set with <see cref="UseInstance(TerminalInstance)"/>;
+    /// otherwise returns the process-global instance, initializing it lazily with a default backend and options on first use.
+    /// </remarks>
     public static TerminalInstance Instance
     {
         get
         {
+            var ambient = _ambientInstance;
+            if (ambient is not null)
+            {
+                return ambient;
+            }
+
             EnsureInitialized();
             return _instance!;
         }
     }
 
     /// <summary>
-    /// Convenience alias for fluent usage (e.g. <c>Terminal.T.Foreground(...).Write(...)</c>).
+    /// Convenience alias for <see cref="Instance"/> for fluent usage (e.g. <c>Terminal.T.Foreground(...).Write(...)</c>).
     /// </summary>
+    /// <remarks>
+    /// Like <see cref="Instance"/>, returns the ambient instance of the calling thread when one is set, otherwise the process-global instance.
+    /// </remarks>
     public static TerminalInstance T => Instance;
 
     /// <summary>
-    /// Gets a value indicating whether the terminal has been initialized.
+    /// Gets a value indicating whether the process-global terminal instance has been initialized.
     /// </summary>
+    /// <remarks>
+    /// The ambient instance set with <see cref="UseInstance(TerminalInstance)"/> is not taken into account.
+    /// </remarks>
     public static bool IsInitialized => Volatile.Read(ref _instance) is { IsInitialized: true };
 
     /// <inheritdoc cref="TerminalInstance.Backend" />
@@ -225,6 +247,7 @@ public static partial class Terminal
     /// <param name="options">An optional options instance. When <see langword="null"/>, defaults are used.</param>
     /// <param name="force">When <see langword="true"/>, re-initializes and disposes any existing instance.</param>
     /// <returns>The initialized terminal instance.</returns>
+    /// <remarks>If initialization fails, the selected backend is disposed and the global instance remains uninitialized.</remarks>
     public static TerminalInstance Initialize(ITerminalBackend? backend = null, TerminalOptions? options = null, bool force = false)
     {
         lock (InitLock)
@@ -235,9 +258,19 @@ public static partial class Terminal
             }
 
             _instance?.Dispose();
+            Volatile.Write(ref _instance, null);
 
             var instance = new TerminalInstance();
-            instance.Initialize(backend, options);
+            try
+            {
+                instance.Initialize(backend, options);
+            }
+            catch
+            {
+                instance.Dispose();
+                throw;
+            }
+
             Volatile.Write(ref _instance, instance);
             HookProcessLifetime();
             return instance;
@@ -266,6 +299,41 @@ public static partial class Terminal
             _instance?.Dispose();
             _instance = null;
         }
+    }
+
+    /// <summary>
+    /// Makes the specified instance the ambient terminal instance of the calling thread until the returned scope is disposed.
+    /// </summary>
+    /// <param name="instance">The instance returned by <see cref="Instance"/>, and therefore targeted by every static <see cref="Terminal"/> member, on the calling thread while the scope is active.</param>
+    /// <returns>A scope that restores the previous ambient instance of the calling thread when disposed.</returns>
+    /// <remarks>
+    /// <para>
+    /// The ambient instance lets code that uses the static <see cref="Terminal"/> facade (for example a library calling <see cref="WriteLine(string?)"/>)
+    /// reach a standalone <see cref="TerminalInstance"/> without the instance being passed around.
+    /// </para>
+    /// <para>
+    /// The ambient instance is stored per thread: other threads keep seeing their own ambient instance or the global instance,
+    /// and it does not flow to tasks started from the calling thread or to <c>await</c> continuations that resume on another thread.
+    /// </para>
+    /// <para>
+    /// The returned scope must be disposed on the thread that created it, in reverse order of creation.
+    /// Disposing an active scope on another thread or out of order throws <see cref="InvalidOperationException"/> without consuming it.
+    /// Disposing it more than once has no effect.
+    /// </para>
+    /// <para>
+    /// This method does not change the process-global instance: <see cref="IsInitialized"/>, <see cref="Initialize"/>, <see cref="Open"/> and <see cref="Close"/>
+    /// keep operating on the global instance.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="instance"/> is <see langword="null"/>.</exception>
+    public static TerminalScope UseInstance(TerminalInstance instance)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+
+        var scope = new AmbientInstanceScope(_ambientInstance, _ambientScope);
+        _ambientInstance = instance;
+        _ambientScope = scope;
+        return new TerminalScope(scope);
     }
 
     private static void HookProcessLifetime()
@@ -299,6 +367,8 @@ public static partial class Terminal
     /// </remarks>
     internal static void ResetForTests()
     {
+        _ambientInstance = null;
+        _ambientScope = null;
         Close();
     }
 
@@ -414,5 +484,43 @@ public static partial class Terminal
         }
 
         Initialize();
+    }
+
+    private sealed class AmbientInstanceScope : IDisposable
+    {
+        private readonly TerminalInstance? _previous;
+        private readonly AmbientInstanceScope? _previousScope;
+        private readonly int _threadId;
+        private bool _isDisposed;
+
+        public AmbientInstanceScope(TerminalInstance? previous, AmbientInstanceScope? previousScope)
+        {
+            _previous = previous;
+            _previousScope = previousScope;
+            _threadId = Environment.CurrentManagedThreadId;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            if (Environment.CurrentManagedThreadId != _threadId)
+            {
+                throw new InvalidOperationException("The ambient terminal scope must be disposed on the thread that created it.");
+            }
+
+            // Track scope identity, not instance identity: nested scopes may select the same terminal.
+            if (!ReferenceEquals(_ambientScope, this))
+            {
+                throw new InvalidOperationException("Ambient terminal scopes must be disposed in reverse order of creation.");
+            }
+
+            _isDisposed = true;
+            _ambientInstance = _previous;
+            _ambientScope = _previousScope;
+        }
     }
 }
