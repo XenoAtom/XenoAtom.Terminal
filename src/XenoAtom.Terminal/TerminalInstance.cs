@@ -11,7 +11,8 @@ using XenoAtom.Terminal.Internal;
 namespace XenoAtom.Terminal;
 
 /// <summary>
-/// Stateful, instance-based terminal API. The static <see cref="Terminal"/> facade forwards to a single global instance.
+/// Stateful, instance-based terminal API. The static <see cref="Terminal"/> facade forwards to the ambient instance of the current thread
+/// (see <see cref="Terminal.UseInstance(TerminalInstance)"/>) or, when there is none, to a single global instance.
 /// </summary>
 public sealed partial class TerminalInstance : IDisposable
 {
@@ -78,6 +79,9 @@ public sealed partial class TerminalInstance : IDisposable
     /// Several standalone instances can coexist in the same process (for example one per thread or per test).
     /// </para>
     /// <para>
+    /// Use <see cref="Terminal.UseInstance(TerminalInstance)"/> to make it the instance targeted by the static <see cref="Terminal"/> facade on the current thread.
+    /// </para>
+    /// <para>
     /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
     /// </para>
     /// </remarks>
@@ -98,6 +102,9 @@ public sealed partial class TerminalInstance : IDisposable
     /// A standalone instance is independent from the process-global instance used by the static <see cref="Terminal"/> facade:
     /// creating it does not initialize, replace or otherwise change the global instance, and disposing it does not affect the global instance.
     /// Several standalone instances can coexist in the same process (for example one per thread or per test).
+    /// </para>
+    /// <para>
+    /// Use <see cref="Terminal.UseInstance(TerminalInstance)"/> to make it the instance targeted by the static <see cref="Terminal"/> facade on the current thread.
     /// </para>
     /// <para>
     /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
