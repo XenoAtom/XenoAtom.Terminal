@@ -4,14 +4,14 @@
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.4.0" />
-    <PackageVersion Include="MinVer" Version="7.0.0" />
-    <PackageVersion Include="MSTest.TestAdapter" Version="4.2.1" />
-    <PackageVersion Include="MSTest.TestFramework" Version="4.2.1" />
-    <PackageVersion Include="SkiaSharp" Version="3.119.2" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="3.119.2" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="3.119.2" />
-    <PackageVersion Include="XenoAtom.Ansi" Version="1.7.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageVersion Include="MinVer" Version="8.0.0" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="4.5.2" />
+    <PackageVersion Include="MSTest.TestFramework" Version="4.5.2" />
+    <PackageVersion Include="SkiaSharp" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="3.119.4" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" />
+    <PackageVersion Include="XenoAtom.Ansi" Version="1.7.1" />
   </ItemGroup>
 </Project>
