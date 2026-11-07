@@ -112,6 +112,58 @@ public class TerminalInstanceStandaloneTests
     }
 
     [TestMethod]
+    public void Constructor_WhenBackendInitializeFails_DisposesBackend()
+    {
+        // A disposed backend makes its Initialize throw: this is the failure path of the constructor.
+        // The instance owns the backend from the call on, so a failed construction must not leak it.
+        var backend1 = new DisposeCountingBackend();
+        backend1.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => new TerminalInstance(backend1));
+        // Once by the test, once by the failed constructor.
+        Assert.AreEqual(2, backend1.DisposeCount);
+
+        var backend2 = new DisposeCountingBackend();
+        backend2.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => new TerminalInstance(backend2, new TerminalOptions()));
+        Assert.AreEqual(2, backend2.DisposeCount);
+
+        Assert.IsFalse(Terminal.IsInitialized);
+    }
+
+    [TestMethod]
+    public void Constructor_WithNullOptions_DoesNotTakeOwnershipOfBackend()
+    {
+        // Argument validation happens before ownership is taken: the caller still owns the backend.
+        var backend = new DisposeCountingBackend();
+
+        Assert.ThrowsExactly<ArgumentNullException>(() => new TerminalInstance(backend, null!));
+        Assert.AreEqual(0, backend.DisposeCount);
+        backend.Dispose();
+        Assert.AreEqual(1, backend.DisposeCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void GlobalInitialize_WhenBackendInitializeFails_DisposesBackendAndAllowsRetry(bool replaceGlobal)
+    {
+        if (replaceGlobal)
+        {
+            Terminal.Initialize(new InMemoryTerminalBackend());
+        }
+
+        var backend = new DisposeCountingBackend();
+        backend.Dispose();
+
+        Assert.ThrowsExactly<ObjectDisposedException>(() => Terminal.Initialize(backend, force: true));
+        Assert.AreEqual(2, backend.DisposeCount);
+        Assert.IsFalse(Terminal.IsInitialized);
+
+        var replacement = Terminal.Initialize(new InMemoryTerminalBackend());
+        Assert.AreSame(replacement, Terminal.Instance);
+    }
+
+    [TestMethod]
     public void UseInstance_NullInstance_Throws()
     {
         var ex = Assert.ThrowsExactly<ArgumentNullException>(() => Terminal.UseInstance(null!));
@@ -249,11 +301,18 @@ public class TerminalInstanceStandaloneTests
         });
         thread.Start();
 
-        Assert.IsTrue(scopeEntered.Wait(TimeSpan.FromSeconds(10)));
-        // The other thread is inside its scope: this thread still targets the global instance.
-        Assert.AreSame(global, Terminal.Instance);
-        releaseScope.Set();
-        thread.Join();
+        try
+        {
+            Assert.IsTrue(scopeEntered.Wait(TimeSpan.FromSeconds(10)));
+            // The other thread is inside its scope: this thread still targets the global instance.
+            Assert.AreSame(global, Terminal.Instance);
+        }
+        finally
+        {
+            // Always release the other thread, otherwise a failed assertion would leave it blocked and hang the test host.
+            releaseScope.Set();
+            thread.Join();
+        }
 
         Assert.AreSame(otherTerminal, seenInsideScope);
         Assert.AreSame(global, seenAfterScope);
@@ -297,7 +356,7 @@ public class TerminalInstanceStandaloneTests
     }
 
     [TestMethod]
-    public void UseInstance_DisposeOnOtherThread_DoesNothing()
+    public void UseInstance_DisposeOnOtherThread_ThrowsWithoutConsumingScope()
     {
         var global = Terminal.Initialize(new InMemoryTerminalBackend());
         using var terminal = new TerminalInstance(new InMemoryTerminalBackend());
@@ -305,19 +364,60 @@ public class TerminalInstanceStandaloneTests
         var scope = Terminal.UseInstance(terminal);
 
         TerminalInstance? seenFromOtherThread = null;
+        Exception? disposeError = null;
         var thread = new Thread(() =>
         {
-            scope.Dispose();
+            try
+            {
+                scope.Dispose();
+            }
+            catch (Exception exception)
+            {
+                disposeError = exception;
+            }
+
             seenFromOtherThread = Terminal.Instance;
         });
         thread.Start();
         thread.Join();
 
-        Assert.AreSame(global, seenFromOtherThread);
-        Assert.AreSame(terminal, Terminal.Instance);
+        try
+        {
+            Assert.IsInstanceOfType<InvalidOperationException>(disposeError);
+            Assert.AreSame(global, seenFromOtherThread);
+            Assert.AreSame(terminal, Terminal.Instance);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
 
-        // The ignored dispose did not consume the scope: disposing on the owning thread still restores.
-        scope.Dispose();
+        Assert.AreSame(global, Terminal.Instance);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UseInstance_DisposeOutOfOrder_ThrowsWithoutConsumingScope(bool sameInstance)
+    {
+        var global = Terminal.Initialize(new InMemoryTerminalBackend());
+        using var first = new TerminalInstance(new InMemoryTerminalBackend());
+        using var second = new TerminalInstance(new InMemoryTerminalBackend());
+        var inner = sameInstance ? first : second;
+        var outerScope = Terminal.UseInstance(first);
+        var innerScope = Terminal.UseInstance(inner);
+
+        try
+        {
+            Assert.ThrowsExactly<InvalidOperationException>(() => outerScope.Dispose());
+            Assert.AreSame(inner, Terminal.Instance);
+        }
+        finally
+        {
+            innerScope.Dispose();
+            outerScope.Dispose();
+        }
+
         Assert.AreSame(global, Terminal.Instance);
     }
 
@@ -346,5 +446,19 @@ public class TerminalInstanceStandaloneTests
 
         Assert.AreEqual("still alive", backend.GetOutText());
         Assert.IsFalse(Terminal.IsInitialized);
+    }
+
+    /// <summary>
+    /// A backend that counts its <see cref="Dispose"/> calls, to observe which owner disposes it.
+    /// </summary>
+    private sealed class DisposeCountingBackend : VirtualTerminalBackend
+    {
+        public int DisposeCount { get; private set; }
+
+        public override void Dispose()
+        {
+            DisposeCount++;
+            base.Dispose();
+        }
     }
 }

@@ -83,13 +83,12 @@ public sealed partial class TerminalInstance : IDisposable
     /// </para>
     /// <para>
     /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// If the constructor throws after taking ownership of the backend (for example because the backend fails to initialize), the backend is disposed.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="backend"/> is <see langword="null"/>.</exception>
-    public TerminalInstance(ITerminalBackend backend) : this()
+    public TerminalInstance(ITerminalBackend backend) : this(backend, new TerminalOptions())
     {
-        ArgumentNullException.ThrowIfNull(backend);
-        Initialize(backend, options: null);
     }
 
     /// <summary>
@@ -108,6 +107,8 @@ public sealed partial class TerminalInstance : IDisposable
     /// </para>
     /// <para>
     /// The caller is responsible for disposing the instance. Unlike the global instance, it is not disposed automatically when the process exits.
+    /// If the constructor throws after taking ownership of the backend (for example because the backend fails to initialize), the backend is disposed.
+    /// Arguments are validated before ownership is taken, so an <see cref="ArgumentNullException"/> leaves the backend to the caller.
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="backend"/> or <paramref name="options"/> is <see langword="null"/>.</exception>
@@ -115,7 +116,17 @@ public sealed partial class TerminalInstance : IDisposable
     {
         ArgumentNullException.ThrowIfNull(backend);
         ArgumentNullException.ThrowIfNull(options);
-        Initialize(backend, options);
+
+        try
+        {
+            Initialize(backend, options);
+        }
+        catch
+        {
+            // No caller can dispose the backend once the constructor throws: release it here, keep the original exception.
+            Dispose();
+            throw;
+        }
     }
 
     /// <summary>

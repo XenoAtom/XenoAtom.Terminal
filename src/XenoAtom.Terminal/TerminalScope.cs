@@ -18,6 +18,7 @@ public readonly struct TerminalScope : IDisposable
     /// <summary>
     /// Disposes this scope and restores the previous terminal state (best effort).
     /// </summary>
+    /// <exception cref="InvalidOperationException">An active ambient instance scope is disposed on another thread or out of order.</exception>
     public void Dispose() => _disposable?.Dispose();
 
     /// <summary>

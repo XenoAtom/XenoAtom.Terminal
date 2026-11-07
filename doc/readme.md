@@ -122,7 +122,7 @@ Terminal.Initialize(backend);
 
 #### Standalone instances
 
-To use a terminal without touching the global instance (for example one terminal per thread or per test), create a standalone `TerminalInstance` over a backend. It is initialized on construction, owns the backend, and is never registered as the global instance:
+To use a terminal without touching the global instance (for example one terminal per thread or per test), create a standalone `TerminalInstance` over a backend. It is initialized on construction, owns the backend (which is disposed too if the construction fails), and is never registered as the global instance:
 
 ```csharp
 using XenoAtom.Terminal.Backends;
@@ -140,7 +140,9 @@ using (Terminal.UseInstance(terminal))
 }
 ```
 
-The ambient instance is per thread: it does not flow to other threads or tasks, and the scope must be disposed on the thread that created it (avoid `await` inside the scope unless the continuation resumes on the same thread). `Terminal.IsInitialized`, `Terminal.Initialize`, `Terminal.Open` and `Terminal.Close` keep operating on the global instance.
+The ambient instance is per thread: it does not flow to other threads or tasks, and scopes must be disposed on the thread that created them in reverse order of creation (avoid `await` inside the scope unless the continuation resumes on the same thread). Disposing an active scope on another thread or out of order throws `InvalidOperationException` without consuming it; it can still be disposed correctly afterwards. Repeated disposal after successful disposal has no effect.
+
+`Terminal.IsInitialized`, `Terminal.Initialize`, `Terminal.Open` and `Terminal.Close` keep operating on the global instance. If global initialization fails, the selected backend is disposed and initialization can be retried.
 
 ## Capabilities and backends
 

@@ -22,6 +22,9 @@ public static partial class Terminal
     [ThreadStatic]
     private static TerminalInstance? _ambientInstance;
 
+    [ThreadStatic]
+    private static AmbientInstanceScope? _ambientScope;
+
     /// <summary>
     /// Gets the terminal instance targeted by the static <see cref="Terminal"/> members on the calling thread.
     /// </summary>
@@ -244,6 +247,7 @@ public static partial class Terminal
     /// <param name="options">An optional options instance. When <see langword="null"/>, defaults are used.</param>
     /// <param name="force">When <see langword="true"/>, re-initializes and disposes any existing instance.</param>
     /// <returns>The initialized terminal instance.</returns>
+    /// <remarks>If initialization fails, the selected backend is disposed and the global instance remains uninitialized.</remarks>
     public static TerminalInstance Initialize(ITerminalBackend? backend = null, TerminalOptions? options = null, bool force = false)
     {
         lock (InitLock)
@@ -254,9 +258,19 @@ public static partial class Terminal
             }
 
             _instance?.Dispose();
+            Volatile.Write(ref _instance, null);
 
             var instance = new TerminalInstance();
-            instance.Initialize(backend, options);
+            try
+            {
+                instance.Initialize(backend, options);
+            }
+            catch
+            {
+                instance.Dispose();
+                throw;
+            }
+
             Volatile.Write(ref _instance, instance);
             HookProcessLifetime();
             return instance;
@@ -302,8 +316,9 @@ public static partial class Terminal
     /// and it does not flow to tasks started from the calling thread or to <c>await</c> continuations that resume on another thread.
     /// </para>
     /// <para>
-    /// The returned scope must be disposed on the thread that created it, in reverse order of creation (a <c>using</c> statement does both).
-    /// Disposing it on another thread does nothing. Disposing it more than once has no effect.
+    /// The returned scope must be disposed on the thread that created it, in reverse order of creation.
+    /// Disposing an active scope on another thread or out of order throws <see cref="InvalidOperationException"/> without consuming it.
+    /// Disposing it more than once has no effect.
     /// </para>
     /// <para>
     /// This method does not change the process-global instance: <see cref="IsInitialized"/>, <see cref="Initialize"/>, <see cref="Open"/> and <see cref="Close"/>
@@ -315,8 +330,9 @@ public static partial class Terminal
     {
         ArgumentNullException.ThrowIfNull(instance);
 
-        var scope = new AmbientInstanceScope(_ambientInstance);
+        var scope = new AmbientInstanceScope(_ambientInstance, _ambientScope);
         _ambientInstance = instance;
+        _ambientScope = scope;
         return new TerminalScope(scope);
     }
 
@@ -352,6 +368,7 @@ public static partial class Terminal
     internal static void ResetForTests()
     {
         _ambientInstance = null;
+        _ambientScope = null;
         Close();
     }
 
@@ -472,26 +489,38 @@ public static partial class Terminal
     private sealed class AmbientInstanceScope : IDisposable
     {
         private readonly TerminalInstance? _previous;
+        private readonly AmbientInstanceScope? _previousScope;
         private readonly int _threadId;
         private bool _isDisposed;
 
-        public AmbientInstanceScope(TerminalInstance? previous)
+        public AmbientInstanceScope(TerminalInstance? previous, AmbientInstanceScope? previousScope)
         {
             _previous = previous;
+            _previousScope = previousScope;
             _threadId = Environment.CurrentManagedThreadId;
         }
 
         public void Dispose()
         {
-            // The ambient instance is thread static: only the thread that created the scope can restore it.
-            // A dispose from another thread is ignored (and does not consume the scope).
-            if (Environment.CurrentManagedThreadId != _threadId || _isDisposed)
+            if (_isDisposed)
             {
                 return;
             }
 
+            if (Environment.CurrentManagedThreadId != _threadId)
+            {
+                throw new InvalidOperationException("The ambient terminal scope must be disposed on the thread that created it.");
+            }
+
+            // Track scope identity, not instance identity: nested scopes may select the same terminal.
+            if (!ReferenceEquals(_ambientScope, this))
+            {
+                throw new InvalidOperationException("Ambient terminal scopes must be disposed in reverse order of creation.");
+            }
+
             _isDisposed = true;
             _ambientInstance = _previous;
+            _ambientScope = _previousScope;
         }
     }
 }
