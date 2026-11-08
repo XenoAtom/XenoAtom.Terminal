@@ -731,6 +731,17 @@ var line = await task;
 var outText = backend.GetOutText();
 ```
 
+`PushEvent` publishes an already decoded event. To exercise the real VT input decoding instead (the path a real terminal's bytes take on Unix, and on Windows in VT input mode), feed raw input with `FeedInput`. It is decoded with the options passed to `StartInput`, so mouse reports require `EnableMouseEvents`, and pending partial sequences are flushed after each call as when the input goes idle (a lone `ESC` becomes an Escape key); pass `isFinalChunk: false` to feed a sequence in several chunks:
+
+```csharp
+Terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Clicks });
+
+backend.FeedInput("\x1b[A");            // Up arrow
+backend.FeedInput("\x1b[<0;3;2M");      // SGR mouse: left button down at (2, 1)
+backend.FeedInput("\x1b[", isFinalChunk: false);
+backend.FeedInput("B");                 // Down arrow, decoded across two chunks
+```
+
 ## Samples
 
 - `samples/HelloImage` displays a small markup header and a sample image with terminal graphics.
