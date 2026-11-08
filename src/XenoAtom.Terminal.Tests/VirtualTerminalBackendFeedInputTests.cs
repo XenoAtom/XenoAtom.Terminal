@@ -144,8 +144,7 @@ public sealed class VirtualTerminalBackendFeedInputTests
 
         backend.FeedInput("\x1b[<0;3;2M");
 
-        var events = ReadAll(backend);
-        Assert.IsFalse(events.Any(static ev => ev is TerminalMouseEvent));
+        Assert.IsEmpty(ReadAll(backend));
     }
 
     [TestMethod]
@@ -154,7 +153,7 @@ public sealed class VirtualTerminalBackendFeedInputTests
         using var backend = new InMemoryTerminalBackend();
         backend.StartInput(new TerminalInputOptions { EnableMouseEvents = false });
         backend.FeedInput("\x1b[<0;3;2M");
-        Assert.IsFalse(ReadAll(backend).Any(static ev => ev is TerminalMouseEvent));
+        Assert.IsEmpty(ReadAll(backend));
 
         // A StartInput while running updates the options, as with the real backends.
         backend.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Clicks });
@@ -211,16 +210,88 @@ public sealed class VirtualTerminalBackendFeedInputTests
         backend.FeedInput("\x1b[B");
 
         Assert.IsTrue(terminal.TryReadEvent(out var ev));
-        var key = (TerminalKeyEvent)ev;
+        var key = Assert.IsInstanceOfType<TerminalKeyEvent>(ev);
         Assert.AreEqual(TerminalKey.Down, key.Key);
         Assert.IsFalse(terminal.TryReadEvent(out _));
+    }
+
+    [TestMethod]
+    public void FeedInput_SgrMouse_IsFilteredByTheTerminalInstanceMouseMode()
+    {
+        var backend = new InMemoryTerminalBackend();
+        using var terminal = new TerminalInstance(backend);
+        terminal.StartInput(new TerminalInputOptions { EnableMouseEvents = true, MouseMode = TerminalMouseMode.Clicks });
+
+        // Down, move (button 35 = motion, no button), up: the instance keeps clicks only in Clicks mode.
+        backend.FeedInput("\x1b[<0;3;2M\x1b[<35;4;2M\x1b[<0;4;2m");
+
+        var events = new List<TerminalEvent>();
+        while (terminal.TryReadEvent(out var ev))
+        {
+            events.Add(ev);
+        }
+
+        Assert.HasCount(2, events);
+        Assert.AreEqual(TerminalMouseKind.Down, Assert.IsInstanceOfType<TerminalMouseEvent>(events[0]).Kind);
+        Assert.AreEqual(TerminalMouseKind.Up, Assert.IsInstanceOfType<TerminalMouseEvent>(events[1]).Kind);
+    }
+
+    [TestMethod]
+    public void FeedInput_CtrlC_PublishesInterruptSignal_WhenCaptured()
+    {
+        using var backend = new InMemoryTerminalBackend();
+        backend.StartInput(new TerminalInputOptions { CaptureCtrlC = true });
+
+        backend.FeedInput("\x03");
+
+        var events = ReadAll(backend);
+        Assert.HasCount(2, events);
+        Assert.AreEqual(TerminalSignalKind.Interrupt, Assert.IsInstanceOfType<TerminalSignalEvent>(events[0]).Kind);
+        var key = Assert.IsInstanceOfType<TerminalKeyEvent>(events[1]);
+        Assert.AreEqual('\x03', key.Char);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void FeedInput_KittyKeyboardSequence_PublishesKeyEvent()
+    {
+        using var backend = new InMemoryTerminalBackend();
+        backend.StartInput(new TerminalInputOptions());
+
+        backend.FeedInput("\x1b[97;5u"); // Ctrl+a in the Kitty keyboard protocol
+
+        var key = ReadSingle<TerminalKeyEvent>(backend);
+        Assert.AreEqual('\x01', key.Char);
+        Assert.AreEqual(TerminalModifiers.Ctrl, key.Modifiers);
+    }
+
+    [TestMethod]
+    public void FeedInput_Empty_WithNothingPending_PublishesNothing()
+    {
+        using var backend = new InMemoryTerminalBackend();
+        backend.StartInput(new TerminalInputOptions());
+
+        backend.FeedInput(ReadOnlySpan<char>.Empty);
+
+        Assert.IsEmpty(ReadAll(backend));
+    }
+
+    [TestMethod]
+    public void Dispose_StopsInput()
+    {
+        var backend = new InMemoryTerminalBackend();
+        backend.StartInput(new TerminalInputOptions());
+
+        backend.Dispose();
+
+        Assert.IsFalse(backend.IsInputRunning);
     }
 
     private static T ReadSingle<T>(InMemoryTerminalBackend backend) where T : TerminalEvent
     {
         var events = ReadAll(backend);
         Assert.HasCount(1, events, $"Expected a single event but got: {string.Join(", ", events.Select(static e => e.GetType().Name))}");
-        return (T)events[0];
+        return Assert.IsInstanceOfType<T>(events[0]);
     }
 
     private static List<TerminalEvent> ReadAll(InMemoryTerminalBackend backend)

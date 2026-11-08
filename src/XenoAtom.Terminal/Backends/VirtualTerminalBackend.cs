@@ -607,9 +607,10 @@ public class VirtualTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBa
     /// <exception cref="ObjectDisposedException">The backend is disposed.</exception>
     public void FeedInput(ReadOnlySpan<char> input, bool isFinalChunk)
     {
-        ThrowIfDisposed();
         lock (_inputLock)
         {
+            // Checked under the lock so a concurrent Dispose cannot leave a decoder behind.
+            ThrowIfDisposed();
             if (!IsInputRunning)
             {
                 throw new InvalidOperationException("The input loop is not running. Call StartInput before feeding raw input.");
@@ -701,6 +702,8 @@ public class VirtualTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBa
         _events.Complete();
         lock (_inputLock)
         {
+            IsInputRunning = false;
+            _inputOptions = null;
             _inputDecoder?.Dispose();
             _inputDecoder = null;
         }

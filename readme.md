@@ -43,7 +43,7 @@ Terminal.WriteMarkup("[bold green]Hello[/] [gray]world[/]!");
 - **Clipboard**: cross-platform text plus named clipboard formats (for example PNG images), including OSC 52 text fallback for remote shells
 - **CI + testing**:
   - CI-aware backend keeps colors when output is redirected
-  - In-memory backend for deterministic tests (capture output + inject events)
+  - In-memory backend for deterministic tests (capture output, inject events or feed raw VT input)
   - Standalone `TerminalInstance` instances and thread-local `Terminal.UseInstance(...)` scopes isolate parallel tests without replacing the global terminal; an opt-in `allowOutOfOrderDisposal` lets a component end its own scope while nested scopes are active
 - **Cross-platform + AOT**: Windows Console + Unix (Linux/macOS), `net10.0`+ and NativeAOT-friendly design
 - **Unix terminfo detection**: uses terminfo + environment hints for colors (16/256/truecolor) and related capabilities (alternate screen/cursor visibility)
