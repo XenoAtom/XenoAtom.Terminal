@@ -20,8 +20,11 @@ public class VirtualTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBa
     private readonly TextWriter? _providedError;
     private readonly bool _disposeWriters;
     private readonly object _clipboardLock = new();
+    private readonly object _inputLock = new();
     private Dictionary<string, byte[]> _clipboardData = new(StringComparer.OrdinalIgnoreCase);
     private TerminalOptions? _options;
+    private TerminalInputOptions? _inputOptions;
+    private VtInputDecoder? _inputDecoder;
 
     private TextWriter _out = TextWriter.Null;
     private TextWriter _error = TextWriter.Null;
@@ -534,15 +537,88 @@ public class VirtualTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBa
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(options);
-        IsInputRunning = true;
+        lock (_inputLock)
+        {
+            // Like the real backends, a StartInput while running only updates the options used to decode input.
+            _inputOptions = options;
+            IsInputRunning = true;
+        }
     }
 
     /// <inheritdoc />
     public Task StopInputAsync(CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        IsInputRunning = false;
+        lock (_inputLock)
+        {
+            IsInputRunning = false;
+            if (_inputDecoder is not null)
+            {
+                // The real backends flush pending partial sequences when their input loop ends; the next
+                // StartInput gets a fresh decoder.
+                _inputDecoder.Decode(ReadOnlySpan<char>.Empty, isFinalChunk: true, _inputOptions, _events, graphicsProbeCoordinator: _graphicsProbeCoordinator);
+                _inputDecoder.Dispose();
+                _inputDecoder = null;
+            }
+
+            _inputOptions = null;
+        }
+
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Feeds raw terminal input (characters as a terminal would send them: typed text, escape sequences, mouse reports, bracketed paste)
+    /// through the VT input decoder used by the real backends and publishes the decoded events to the event stream.
+    /// </summary>
+    /// <param name="input">The raw input characters.</param>
+    /// <remarks>
+    /// <para>
+    /// The input is decoded with the <see cref="TerminalInputOptions"/> passed to <see cref="StartInput"/>, so for example mouse reports
+    /// are decoded only when <see cref="TerminalInputOptions.EnableMouseEvents"/> is enabled, as with a real terminal.
+    /// </para>
+    /// <para>
+    /// This overload treats <paramref name="input"/> as complete: pending partial sequences are flushed afterwards, as the real backends do
+    /// when the input goes idle, so a lone <c>ESC</c> is published as an Escape key. Use <see cref="FeedInput(ReadOnlySpan{char}, bool)"/>
+    /// to feed a sequence in several chunks.
+    /// </para>
+    /// <para>
+    /// Compare with <see cref="PushEvent"/>, which publishes an already decoded event without going through the decoder.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The input loop is not running. Call <see cref="StartInput"/> first.</exception>
+    /// <exception cref="ObjectDisposedException">The backend is disposed.</exception>
+    public void FeedInput(ReadOnlySpan<char> input) => FeedInput(input, isFinalChunk: true);
+
+    /// <summary>
+    /// Feeds raw terminal input through the VT input decoder used by the real backends and publishes the decoded events to the event stream,
+    /// optionally keeping partial sequences pending for a later call.
+    /// </summary>
+    /// <param name="input">The raw input characters.</param>
+    /// <param name="isFinalChunk">
+    /// <see langword="true"/> to flush pending partial sequences after decoding <paramref name="input"/>, as the real backends do when the input goes idle
+    /// (a lone <c>ESC</c> then becomes an Escape key); <see langword="false"/> to keep them pending until the next call, as when a sequence arrives in several reads.
+    /// </param>
+    /// <remarks>
+    /// The input is decoded with the <see cref="TerminalInputOptions"/> passed to <see cref="StartInput"/>. Pending partial sequences are flushed
+    /// and the decoder state is reset when the input loop is stopped with <see cref="StopInputAsync"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The input loop is not running. Call <see cref="StartInput"/> first.</exception>
+    /// <exception cref="ObjectDisposedException">The backend is disposed.</exception>
+    public void FeedInput(ReadOnlySpan<char> input, bool isFinalChunk)
+    {
+        lock (_inputLock)
+        {
+            // Checked under the lock so a concurrent Dispose cannot leave a decoder behind.
+            ThrowIfDisposed();
+            if (!IsInputRunning)
+            {
+                throw new InvalidOperationException("The input loop is not running. Call StartInput before feeding raw input.");
+            }
+
+            _inputDecoder ??= new VtInputDecoder();
+            _inputDecoder.Decode(input, isFinalChunk, _inputOptions, _events, graphicsProbeCoordinator: _graphicsProbeCoordinator);
+        }
     }
 
     /// <inheritdoc />
@@ -624,6 +700,13 @@ public class VirtualTerminalBackend : ITerminalBackend, ITerminalGraphicsProbeBa
 
         _isDisposed = true;
         _events.Complete();
+        lock (_inputLock)
+        {
+            IsInputRunning = false;
+            _inputOptions = null;
+            _inputDecoder?.Dispose();
+            _inputDecoder = null;
+        }
         if (_disposeWriters)
         {
             try { _out.Dispose(); } catch { }
